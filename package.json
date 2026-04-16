@@ -3,6 +3,11 @@
   "displayName": "Myrmidon",
   "description": "Gestión de funcionalidades para una mayor eficiencia en la productividad del desarrollo.",
   "version": "0.0.1",
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GassinDev/plugin-myrmidon-extension-vscode.git"
+  },
   "engines": {
     "vscode": "^1.116.0"
   },

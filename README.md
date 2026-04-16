@@ -85,7 +85,38 @@ npm install
 npm run compile
 ```
 
-### 4.3 Desarrollo en VS Code
+### 4.3 Instalación para quien clona el repositorio
+
+Si descargaste este repositorio y quieres usar la extensión en tu VS Code:
+
+1. Instala dependencias:
+
+```bash
+npm install
+```
+
+2. Empaqueta la extensión en un archivo VSIX:
+
+```bash
+npx --yes @vscode/vsce package
+```
+
+3. Instala el VSIX generado:
+
+```bash
+code --install-extension ./myrmidon-0.0.1.vsix --force
+```
+
+4. Reinicia VS Code y abre el panel Myrmidon en la barra lateral.
+
+Alternativa por interfaz:
+
+1. Ir a Extensions en VS Code.
+2. Menú de tres puntos.
+3. Elegir Install from VSIX...
+4. Seleccionar el archivo `myrmidon-0.0.1.vsix`.
+
+### 4.4 Desarrollo en VS Code
 
 1. Abrir la carpeta del proyecto de la extensión.
 2. Ejecutar la configuración de depuración de extensión (Run Extension / F5).
