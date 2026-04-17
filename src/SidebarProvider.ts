@@ -47,6 +47,12 @@ interface LiveLogEntry {
   timestamp: string;
 }
 
+interface IonicAndroidDevice {
+  id: string;
+  name: string;
+  detail?: string;
+}
+
 /**
  * Proveedor del panel lateral (sidebar)
  * Gestiona la UI del webview y la comunicación con la extensión
@@ -470,9 +476,19 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
 
     const runtimeLabel = this.resolveRuntimeLabel(commandId);
-    const baseCommandToRun = commandId === 'laravel-serve'
+    let baseCommandToRun = commandId === 'laravel-serve'
       ? this.buildLaravelServeCommand()
       : commandText;
+
+    if (commandId === 'ionic-run-device') {
+      const commandWithTarget = await this.prepareIonicRunDeviceCommand(baseCommandToRun);
+      if (!commandWithTarget) {
+        this.logger.log('[SidebarProvider] Ionic run device cancelado por el usuario o sin dispositivos disponibles');
+        return;
+      }
+      baseCommandToRun = commandWithTarget;
+    }
+
     const commandToRun = this.wrapRuntimeCommandForLogging(
       baseCommandToRun,
       commandId,
@@ -507,6 +523,117 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }, webviewView);
     this.pushTerminalAndRuntimeState(webviewView);
     vscode.window.showInformationMessage(`✓ ${runtimeLabel} en ejecución`);
+  }
+
+  /**
+   * Prepara el comando de Ionic Run Device solicitando el target Android actual
+   */
+  private async prepareIonicRunDeviceCommand(baseCommand: string): Promise<string | null> {
+    const selectedDevice = await this.pickAndroidDeviceForIonicRun();
+    if (!selectedDevice) {
+      return null;
+    }
+
+    return this.applyIonicRunTarget(baseCommand, selectedDevice.id);
+  }
+
+  /**
+   * Muestra selector de dispositivos Android conectados para Ionic
+   */
+  private async pickAndroidDeviceForIonicRun(): Promise<IonicAndroidDevice | null> {
+    const devices = this.listConnectedAndroidDevices();
+
+    if (devices.length === 0) {
+      vscode.window.showWarningMessage('No hay dispositivos Android conectados. Conecta uno o inicia un emulador.');
+      return null;
+    }
+
+    type DeviceQuickPickItem = vscode.QuickPickItem & { value: IonicAndroidDevice };
+    const selectedItem = await vscode.window.showQuickPick<DeviceQuickPickItem>(
+      devices.map((device) => ({
+        label: device.name,
+        description: device.id,
+        detail: device.detail,
+        value: device,
+      })),
+      {
+        title: 'Ionic Run Device',
+        placeHolder: 'Selecciona el dispositivo Android donde ejecutar la app',
+        ignoreFocusOut: true,
+      }
+    );
+
+    return selectedItem?.value || null;
+  }
+
+  /**
+   * Lista dispositivos Android conectados usando adb
+   */
+  private listConnectedAndroidDevices(): IonicAndroidDevice[] {
+    try {
+      const output = execSync('adb devices -l', { encoding: 'utf8' });
+      const lines = output
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+        .filter(line => !line.toLowerCase().startsWith('list of devices attached'));
+
+      return lines
+        .map(line => this.parseAdbDeviceLine(line))
+        .filter((device): device is IonicAndroidDevice => Boolean(device));
+    } catch (error) {
+      this.logger.error('[SidebarProvider] Error listando dispositivos Android con adb:', error);
+      vscode.window.showErrorMessage('No se pudo listar dispositivos Android. Verifica que adb esté disponible en PATH.');
+      return [];
+    }
+  }
+
+  /**
+   * Parsea una línea de "adb devices -l" para obtener datos de display
+   */
+  private parseAdbDeviceLine(line: string): IonicAndroidDevice | null {
+    const parts = line.split(/\s+/).filter(Boolean);
+    if (parts.length < 2) {
+      return null;
+    }
+
+    const [id, status, ...metadataParts] = parts;
+    if (status !== 'device') {
+      return null;
+    }
+
+    const metadata = metadataParts.join(' ');
+    const model = metadata.match(/\bmodel:([^\s]+)/)?.[1]?.replace(/_/g, ' ');
+    const deviceName = metadata.match(/\bdevice:([^\s]+)/)?.[1]?.replace(/_/g, ' ');
+    const product = metadata.match(/\bproduct:([^\s]+)/)?.[1]?.replace(/_/g, ' ');
+    const transportId = metadata.match(/\btransport_id:([^\s]+)/)?.[1];
+
+    const detailParts: string[] = [];
+    if (deviceName) {
+      detailParts.push(`device: ${deviceName}`);
+    }
+    if (product) {
+      detailParts.push(`product: ${product}`);
+    }
+    if (transportId) {
+      detailParts.push(`transport: ${transportId}`);
+    }
+
+    return {
+      id,
+      name: model || deviceName || id,
+      detail: detailParts.length > 0 ? detailParts.join(' | ') : undefined,
+    };
+  }
+
+  /**
+   * Inserta/actualiza el --target del comando de Ionic run
+   */
+  private applyIonicRunTarget(command: string, targetId: string): string {
+    const commandWithoutTarget = command
+      .replace(/\s+--target(?:=|\s+)[^\s]+/g, '')
+      .trim();
+    return `${commandWithoutTarget} --target ${targetId}`;
   }
 
   /**
