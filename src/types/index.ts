@@ -3,7 +3,7 @@
  */
 
 /** Tipos de proyectos soportados */
-export type ProjectType = 'laravel' | 'ionic' | 'other';
+export type ProjectType = 'laravel' | 'ionic' | 'ionic-cordova' | 'react-native' | 'cordova' | 'other';
 
 /** Información de versiones de un proyecto */
 export interface ProjectVersions {

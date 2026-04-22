@@ -59,15 +59,94 @@ export class ProjectDetector {
                 return 'laravel';
             }
 
-            // Detectar Ionic (package.json)
+            // Detectar Ionic+Cordova antes que Ionic+Capacitor y Cordova standalone
+            if (this.hasIonicCordovaMarkers(folderPath)) {
+                return 'ionic-cordova';
+            }
+
+            // Detectar Ionic+Capacitor
             if (this.hasIonicMarkers(folderPath)) {
                 return 'ionic';
+            }
+
+            // Detectar React Native (package.json)
+            if (this.hasReactNativeMarkers(folderPath)) {
+                return 'react-native';
+            }
+
+            // Detectar Cordova standalone (package.json o config.xml)
+            if (this.hasCordovaMarkers(folderPath)) {
+                return 'cordova';
             }
         } catch (error) {
             this.logger.error(`Error detecting project type in ${folderPath}:`, error);
         }
 
         return null;
+    }
+
+    /**
+     * Verifica si una carpeta es un proyecto React Native
+     */
+    private hasReactNativeMarkers(folderPath: string): boolean {
+        try {
+            const packagePath = path.join(folderPath, 'package.json');
+            if (!fs.existsSync(packagePath)) {
+                return false;
+            }
+
+            const content = fs.readFileSync(packagePath, 'utf8');
+            const packageJson = JSON.parse(content);
+            const dependencies = {
+                ...(packageJson.dependencies || {}),
+                ...(packageJson.devDependencies || {})
+            };
+
+            return !!(
+                dependencies['react-native'] ||
+                dependencies['expo'] ||
+                dependencies['@react-native-community/cli']
+            );
+        } catch (error) {
+            this.logger.debug(`Error checking React Native markers in ${folderPath}:`, error);
+        }
+
+        return false;
+    }
+
+    /**
+     * Verifica si una carpeta es un proyecto Cordova
+     */
+    private hasCordovaMarkers(folderPath: string): boolean {
+        try {
+            // Verificar config.xml primero (indicador más seguro)
+            const configXmlPath = path.join(folderPath, 'config.xml');
+            if (fs.existsSync(configXmlPath)) {
+                return true;
+            }
+
+            // Alternativa: verificar package.json
+            const packagePath = path.join(folderPath, 'package.json');
+            if (!fs.existsSync(packagePath)) {
+                return false;
+            }
+
+            const content = fs.readFileSync(packagePath, 'utf8');
+            const packageJson = JSON.parse(content);
+            const dependencies = {
+                ...(packageJson.dependencies || {}),
+                ...(packageJson.devDependencies || {})
+            };
+
+            return !!(
+                dependencies['cordova'] ||
+                dependencies['@cordova/cli']
+            );
+        } catch (error) {
+            this.logger.debug(`Error checking Cordova markers in ${folderPath}:`, error);
+        }
+
+        return false;
     }
 
     /**
@@ -95,7 +174,7 @@ export class ProjectDetector {
     }
 
     /**
-     * Verifica si una carpeta es un proyecto Ionic
+     * Verifica si una carpeta es un proyecto Ionic con Capacitor
      */
     private hasIonicMarkers(folderPath: string): boolean {
         try {
@@ -111,14 +190,40 @@ export class ProjectDetector {
                 ...(packageJson.devDependencies || {})
             };
 
-            return !!(
-                dependencies['@ionic/angular'] ||
-                dependencies['@ionic/core'] ||
-                dependencies['@capacitor/core'] ||
-                dependencies['ionic']
-            );
+            const isIonic = !!(dependencies['@ionic/angular'] || dependencies['@ionic/core'] || dependencies['ionic']);
+            const hasCapacitor = !!(dependencies['@capacitor/core'] || dependencies['@capacitor/android']);
+
+            return isIonic && hasCapacitor;
         } catch (error) {
             this.logger.debug(`Error checking Ionic markers in ${folderPath}:`, error);
+        }
+
+        return false;
+    }
+
+    /**
+     * Verifica si una carpeta es un proyecto Ionic con Cordova
+     */
+    private hasIonicCordovaMarkers(folderPath: string): boolean {
+        try {
+            const packagePath = path.join(folderPath, 'package.json');
+            if (!fs.existsSync(packagePath)) {
+                return false;
+            }
+
+            const content = fs.readFileSync(packagePath, 'utf8');
+            const packageJson = JSON.parse(content);
+            const dependencies = {
+                ...(packageJson.dependencies || {}),
+                ...(packageJson.devDependencies || {})
+            };
+
+            const isIonic = !!(dependencies['@ionic/angular'] || dependencies['@ionic/core'] || dependencies['ionic']);
+            const hasCordova = !!(dependencies['cordova'] || dependencies['@cordova/cli'] || packageJson.cordova);
+
+            return isIonic && hasCordova;
+        } catch (error) {
+            this.logger.debug(`Error checking Ionic+Cordova markers in ${folderPath}:`, error);
         }
 
         return false;
@@ -243,7 +348,7 @@ export class ProjectDetector {
                         versions[envKey] = cleanedValue;
                     });
                 }
-            } else if (projectType === 'ionic') {
+            } else if (projectType === 'ionic' || projectType === 'ionic-cordova') {
                 // Extraer versiones de Ionic, Capacitor y Angular
                 const packagePath = path.join(folderPath, 'package.json');
                 if (fs.existsSync(packagePath)) {
@@ -315,6 +420,94 @@ export class ProjectDetector {
                 ]);
                 if (apiUrlProd) {
                     versions['apiUrl (prod)'] = apiUrlProd;
+                }
+            } else if (projectType === 'react-native') {
+                // Extraer versiones de React Native y Expo
+                const packagePath = path.join(folderPath, 'package.json');
+                if (fs.existsSync(packagePath)) {
+                    const content = fs.readFileSync(packagePath, 'utf8');
+                    const packageJson = JSON.parse(content);
+
+                    const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
+
+                    if (packageJson.name) {
+                        versions['name'] = packageJson.name;
+                    }
+
+                    if (packageJson.version) {
+                        versions['version'] = packageJson.version;
+                    }
+
+                    if (packageJson.engines?.node) {
+                        versions['node'] = packageJson.engines.node;
+                    }
+
+                    if (packageJson.packageManager) {
+                        versions['package-manager'] = packageJson.packageManager;
+                    }
+
+                    if (dependencies['react-native']) {
+                        versions['react-native'] = dependencies['react-native'];
+                    }
+                    if (dependencies['expo']) {
+                        versions['expo'] = dependencies['expo'];
+                    }
+                    if (dependencies['@react-native-community/cli']) {
+                        versions['@react-native-community'] = dependencies['@react-native-community/cli'];
+                    }
+                    if (dependencies['typescript']) {
+                        versions['typescript'] = dependencies['typescript'];
+                    }
+                }
+            } else if (projectType === 'cordova') {
+                // Extraer versiones de Cordova
+                const packagePath = path.join(folderPath, 'package.json');
+                if (fs.existsSync(packagePath)) {
+                    const content = fs.readFileSync(packagePath, 'utf8');
+                    const packageJson = JSON.parse(content);
+
+                    const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
+
+                    if (packageJson.name) {
+                        versions['name'] = packageJson.name;
+                    }
+
+                    if (packageJson.version) {
+                        versions['version'] = packageJson.version;
+                    }
+
+                    if (packageJson.engines?.node) {
+                        versions['node'] = packageJson.engines.node;
+                    }
+
+                    if (packageJson.packageManager) {
+                        versions['package-manager'] = packageJson.packageManager;
+                    }
+
+                    if (dependencies['cordova']) {
+                        versions['cordova'] = dependencies['cordova'];
+                    }
+                    if (dependencies['@cordova/cli']) {
+                        versions['@cordova/cli'] = dependencies['@cordova/cli'];
+                    }
+                    if (dependencies['typescript']) {
+                        versions['typescript'] = dependencies['typescript'];
+                    }
+                }
+
+                // Leer configuración de Cordova
+                const configXmlPath = path.join(folderPath, 'config.xml');
+                if (fs.existsSync(configXmlPath)) {
+                    try {
+                        const configContent = fs.readFileSync(configXmlPath, 'utf8');
+                        const platformsMatch = configContent.match(/<platform\s+name="([^"]+)"/g);
+                        if (platformsMatch) {
+                            const platforms = platformsMatch.map(p => p.match(/"([^"]+)"/)?.[1]).filter(Boolean);
+                            versions['platforms'] = platforms.join(', ');
+                        }
+                    } catch (error) {
+                        this.logger.debug(`Error parsing Cordova config at ${configXmlPath}:`, error);
+                    }
                 }
             }
         } catch (error) {

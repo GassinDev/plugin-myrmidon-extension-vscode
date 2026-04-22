@@ -90,6 +90,47 @@ var IONIC_CONFIG = {
     }
   ]
 };
+var IONIC_CORDOVA_CONFIG = {
+  type: "ionic-cordova",
+  icon: "ionic light logo black.svg",
+  color: "#3880FF",
+  description: "Framework mobile h\xEDbrido Ionic con Cordova. Compila para iOS, Android y web usando el motor de Cordova.",
+  versionKeys: ["app", "apiUrl (dev)", "apiUrl (prod)", "version", "ionic", "@ionic/angular", "cordova", "@angular/core", "typescript", "node", "package-manager"],
+  commands: [
+    { id: "ionic-install-deps", label: "Instalaci\xF3n dependencias", command: "npm i", description: "Instala dependencias del proyecto" },
+    { id: "ionic-build", label: "Build", command: "ionic cordova build android", description: "Compila para Android con Cordova" },
+    { id: "ionic-build-release", label: "Prepare To Release", command: "ionic cordova build android --release", description: "Compila para Android en modo release con Cordova" },
+    { id: "ionic-sync", label: "Prepare", command: "ionic cordova prepare android", description: "Prepara archivos y plugins Cordova" },
+    { id: "ionic-run-device", label: "Run Device", command: "ionic cordova run android -l --external", description: "Ejecuta en dispositivo con Cordova" },
+    { id: "ionic-serve", label: "Run Web", command: "ionic serve", description: "Ejecuta en navegador" }
+  ]
+};
+var REACT_NATIVE_CONFIG = {
+  type: "react-native",
+  icon: "react-native.svg",
+  color: "#61DAFB",
+  description: "Framework cross-platform con React Native + Expo. Desarrolla apps nativas para iOS y Android con JavaScript.",
+  versionKeys: ["name", "version", "react-native", "expo", "@react-native-community", "node", "npm", "package-manager"],
+  commands: [
+    { id: "rn-install-deps", label: "Install Deps", command: "npx install", description: "Instala dependencias del proyecto" },
+    { id: "rn-start", label: "Start Metro", command: "npx expo start", description: "Inicia el servidor de desarrollo Expo" }
+  ]
+};
+var CORDOVA_CONFIG = {
+  type: "cordova",
+  icon: "cordova.svg",
+  color: "#E8AA2C",
+  description: "Framework mobile h\xEDbrido que utiliza web technologies (HTML, CSS, JS) para aplicaciones nativas multiplataforma.",
+  versionKeys: ["name", "version", "cordova", "platforms", "@ionic/cli-utils", "node", "npm", "package-manager"],
+  commands: [
+    { id: "cordova-install-deps", label: "Install Deps", command: "npm install", description: "Instala dependencias del proyecto" },
+    { id: "cordova-add-android", label: "Add Android", command: "cordova platform add android", description: "A\xF1ade plataforma Android" },
+    { id: "cordova-add-ios", label: "Add iOS", command: "cordova platform add ios", description: "A\xF1ade plataforma iOS" },
+    { id: "cordova-run-android", label: "Run Android", command: "cordova run android", description: "Ejecuta en Android" },
+    { id: "cordova-run-ios", label: "Run iOS", command: "cordova run ios", description: "Ejecuta en iOS" },
+    { id: "cordova-build-release", label: "Build Release", command: "cordova build android --release", description: "Construye versi\xF3n release firmada" }
+  ]
+};
 var OTHER_CONFIG = {
   type: "other",
   icon: "\u{1F4E6}",
@@ -101,6 +142,9 @@ var OTHER_CONFIG = {
 var PROJECT_CONFIGS = {
   laravel: LARAVEL_CONFIG,
   ionic: IONIC_CONFIG,
+  "ionic-cordova": IONIC_CORDOVA_CONFIG,
+  "react-native": REACT_NATIVE_CONFIG,
+  cordova: CORDOVA_CONFIG,
   other: OTHER_CONFIG
 };
 
@@ -145,13 +189,68 @@ var ProjectDetector = class {
       if (this.hasLaravelMarkers(folderPath)) {
         return "laravel";
       }
+      if (this.hasIonicCordovaMarkers(folderPath)) {
+        return "ionic-cordova";
+      }
       if (this.hasIonicMarkers(folderPath)) {
         return "ionic";
+      }
+      if (this.hasReactNativeMarkers(folderPath)) {
+        return "react-native";
+      }
+      if (this.hasCordovaMarkers(folderPath)) {
+        return "cordova";
       }
     } catch (error) {
       this.logger.error(`Error detecting project type in ${folderPath}:`, error);
     }
     return null;
+  }
+  /**
+   * Verifica si una carpeta es un proyecto React Native
+   */
+  hasReactNativeMarkers(folderPath) {
+    try {
+      const packagePath = path.join(folderPath, "package.json");
+      if (!fs.existsSync(packagePath)) {
+        return false;
+      }
+      const content = fs.readFileSync(packagePath, "utf8");
+      const packageJson = JSON.parse(content);
+      const dependencies = {
+        ...packageJson.dependencies || {},
+        ...packageJson.devDependencies || {}
+      };
+      return !!(dependencies["react-native"] || dependencies["expo"] || dependencies["@react-native-community/cli"]);
+    } catch (error) {
+      this.logger.debug(`Error checking React Native markers in ${folderPath}:`, error);
+    }
+    return false;
+  }
+  /**
+   * Verifica si una carpeta es un proyecto Cordova
+   */
+  hasCordovaMarkers(folderPath) {
+    try {
+      const configXmlPath = path.join(folderPath, "config.xml");
+      if (fs.existsSync(configXmlPath)) {
+        return true;
+      }
+      const packagePath = path.join(folderPath, "package.json");
+      if (!fs.existsSync(packagePath)) {
+        return false;
+      }
+      const content = fs.readFileSync(packagePath, "utf8");
+      const packageJson = JSON.parse(content);
+      const dependencies = {
+        ...packageJson.dependencies || {},
+        ...packageJson.devDependencies || {}
+      };
+      return !!(dependencies["cordova"] || dependencies["@cordova/cli"]);
+    } catch (error) {
+      this.logger.debug(`Error checking Cordova markers in ${folderPath}:`, error);
+    }
+    return false;
   }
   /**
    * Verifica si una carpeta es un proyecto Laravel
@@ -171,7 +270,7 @@ var ProjectDetector = class {
     return false;
   }
   /**
-   * Verifica si una carpeta es un proyecto Ionic
+   * Verifica si una carpeta es un proyecto Ionic con Capacitor
    */
   hasIonicMarkers(folderPath) {
     try {
@@ -185,9 +284,34 @@ var ProjectDetector = class {
         ...packageJson.dependencies || {},
         ...packageJson.devDependencies || {}
       };
-      return !!(dependencies["@ionic/angular"] || dependencies["@ionic/core"] || dependencies["@capacitor/core"] || dependencies["ionic"]);
+      const isIonic = !!(dependencies["@ionic/angular"] || dependencies["@ionic/core"] || dependencies["ionic"]);
+      const hasCapacitor = !!(dependencies["@capacitor/core"] || dependencies["@capacitor/android"]);
+      return isIonic && hasCapacitor;
     } catch (error) {
       this.logger.debug(`Error checking Ionic markers in ${folderPath}:`, error);
+    }
+    return false;
+  }
+  /**
+   * Verifica si una carpeta es un proyecto Ionic con Cordova
+   */
+  hasIonicCordovaMarkers(folderPath) {
+    try {
+      const packagePath = path.join(folderPath, "package.json");
+      if (!fs.existsSync(packagePath)) {
+        return false;
+      }
+      const content = fs.readFileSync(packagePath, "utf8");
+      const packageJson = JSON.parse(content);
+      const dependencies = {
+        ...packageJson.dependencies || {},
+        ...packageJson.devDependencies || {}
+      };
+      const isIonic = !!(dependencies["@ionic/angular"] || dependencies["@ionic/core"] || dependencies["ionic"]);
+      const hasCordova = !!(dependencies["cordova"] || dependencies["@cordova/cli"] || packageJson.cordova);
+      return isIonic && hasCordova;
+    } catch (error) {
+      this.logger.debug(`Error checking Ionic+Cordova markers in ${folderPath}:`, error);
     }
     return false;
   }
@@ -283,7 +407,7 @@ var ProjectDetector = class {
             versions[envKey] = cleanedValue;
           });
         }
-      } else if (projectType === "ionic") {
+      } else if (projectType === "ionic" || projectType === "ionic-cordova") {
         const packagePath = path.join(folderPath, "package.json");
         if (fs.existsSync(packagePath)) {
           const content = fs.readFileSync(packagePath, "utf8");
@@ -346,6 +470,78 @@ var ProjectDetector = class {
         ]);
         if (apiUrlProd) {
           versions["apiUrl (prod)"] = apiUrlProd;
+        }
+      } else if (projectType === "react-native") {
+        const packagePath = path.join(folderPath, "package.json");
+        if (fs.existsSync(packagePath)) {
+          const content = fs.readFileSync(packagePath, "utf8");
+          const packageJson = JSON.parse(content);
+          const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
+          if (packageJson.name) {
+            versions["name"] = packageJson.name;
+          }
+          if (packageJson.version) {
+            versions["version"] = packageJson.version;
+          }
+          if (packageJson.engines?.node) {
+            versions["node"] = packageJson.engines.node;
+          }
+          if (packageJson.packageManager) {
+            versions["package-manager"] = packageJson.packageManager;
+          }
+          if (dependencies["react-native"]) {
+            versions["react-native"] = dependencies["react-native"];
+          }
+          if (dependencies["expo"]) {
+            versions["expo"] = dependencies["expo"];
+          }
+          if (dependencies["@react-native-community/cli"]) {
+            versions["@react-native-community"] = dependencies["@react-native-community/cli"];
+          }
+          if (dependencies["typescript"]) {
+            versions["typescript"] = dependencies["typescript"];
+          }
+        }
+      } else if (projectType === "cordova") {
+        const packagePath = path.join(folderPath, "package.json");
+        if (fs.existsSync(packagePath)) {
+          const content = fs.readFileSync(packagePath, "utf8");
+          const packageJson = JSON.parse(content);
+          const dependencies = { ...packageJson.dependencies, ...packageJson.devDependencies };
+          if (packageJson.name) {
+            versions["name"] = packageJson.name;
+          }
+          if (packageJson.version) {
+            versions["version"] = packageJson.version;
+          }
+          if (packageJson.engines?.node) {
+            versions["node"] = packageJson.engines.node;
+          }
+          if (packageJson.packageManager) {
+            versions["package-manager"] = packageJson.packageManager;
+          }
+          if (dependencies["cordova"]) {
+            versions["cordova"] = dependencies["cordova"];
+          }
+          if (dependencies["@cordova/cli"]) {
+            versions["@cordova/cli"] = dependencies["@cordova/cli"];
+          }
+          if (dependencies["typescript"]) {
+            versions["typescript"] = dependencies["typescript"];
+          }
+        }
+        const configXmlPath = path.join(folderPath, "config.xml");
+        if (fs.existsSync(configXmlPath)) {
+          try {
+            const configContent = fs.readFileSync(configXmlPath, "utf8");
+            const platformsMatch = configContent.match(/<platform\s+name="([^"]+)"/g);
+            if (platformsMatch) {
+              const platforms = platformsMatch.map((p) => p.match(/"([^"]+)"/)?.[1]).filter(Boolean);
+              versions["platforms"] = platforms.join(", ");
+            }
+          } catch (error) {
+            this.logger.debug(`Error parsing Cordova config at ${configXmlPath}:`, error);
+          }
         }
       }
     } catch (error) {
@@ -422,9 +618,8 @@ var WebviewContent = class {
   /**
    * Genera el HTML completo del webview
    */
-  static generate(projects, terminals = [], extensionUri, webview) {
+  static generate(projects, _terminals = [], extensionUri, webview) {
     const projectsHtml = this.generateProjectOptions(projects);
-    const terminalsHtml = this.generateTerminalOptions(terminals);
     const projectTypeIcons = this.generateProjectTypeLegend(extensionUri, webview);
     const projectInfoSections = this.generateProjectInfoSections(extensionUri, webview);
     const versionKeyMap = this.getVersionKeyMap();
@@ -445,23 +640,24 @@ var WebviewContent = class {
         <!-- T\xEDtulo -->
         <header class="extension-header">
             <h1 class="extension-title">MYRMIDON</h1>
+            <button type="button" class="notif-bell-btn" id="notifBellBtn" onclick="toggleNotifications()" title="Notificaciones">
+                \u{1F514}<span class="notif-badge" id="notifBadge" hidden>0</span>
+            </button>
         </header>
+        <div class="notifications-panel" id="notificationsPanel" hidden>
+            <div class="notif-panel-header">
+                <span class="notif-panel-title">NOTIFICACIONES</span>
+                <button type="button" class="notif-clear-btn" onclick="clearNotifications()">Limpiar</button>
+            </div>
+            <div class="notif-list" id="notifList">
+                <div class="notif-empty">Sin notificaciones</div>
+            </div>
+        </div>
 
-        <!-- Selector de terminal -->
-        <div class="terminal-selector-wrapper">
-            <label for="terminalSelect" class="terminal-label">\u{1F5A5}\uFE0F TERMINAL</label>
-            <select class="terminal-select" id="terminalSelect" onchange="selectTerminal()">
-                <option value="">Selecciona una terminal...</option>
-                ${terminalsHtml}
-            </select>
-            <span class="terminal-status" id="terminalStatus"></span>
-            <div class="terminal-hint">
-                <small>\u{1F4A1} Terminal externa: Se abrir\xE1 el terminal configurado en VS Code. El comando se copiar\xE1 autom\xE1ticamente.</small>
-            </div>
-            <div class="runtime-status-wrapper" id="runtimeStatusWrapper" hidden>
-                <span class="runtime-status-title">EJECUCIONES ACTIVAS</span>
-                <div class="runtime-status-list" id="runtimeStatusList"></div>
-            </div>
+        <!-- Ejecuciones activas -->
+        <div class="runtime-status-wrapper" id="runtimeStatusWrapper" hidden>
+            <span class="runtime-status-title">EJECUCIONES ACTIVAS</span>
+            <div class="runtime-status-list" id="runtimeStatusList"></div>
         </div>
 
         <!-- Selector de proyectos -->
@@ -505,33 +701,6 @@ var WebviewContent = class {
 		`;
   }
   /**
-   * Genera las opciones del selector de terminales
-   */
-  static generateTerminalOptions(terminals) {
-    if (!terminals || terminals.length === 0) {
-      return `
-                <optgroup label="VS Code">
-                    <option value="vscode:new">+ Crear nueva terminal</option>
-                </optgroup>
-                <optgroup label="Externa">
-                    <option value="external:native">\u{1F5A5}\uFE0F Terminal Externa</option>
-                </optgroup>
-            `;
-    }
-    const vsCodeTerminals = terminals.filter((t) => t.type === "vscode").map((t) => `<option value="${t.id}">${t.name}</option>`).join("");
-    const externalTerminals = terminals.filter((t) => t.type === "external").map((t) => `<option value="${t.id}">${t.name}</option>`).join("");
-    return `
-            <optgroup label="VS Code">
-                ${vsCodeTerminals}
-                <option value="vscode:new">+ Crear nueva terminal</option>
-            </optgroup>
-            <optgroup label="Externa">
-                ${externalTerminals}
-                <option value="external:native">\u{1F5A5}\uFE0F Terminal Externa</option>
-            </optgroup>
-        `;
-  }
-  /**
    * Genera las opciones del selector de proyectos
    */
   static generateProjectOptions(projects) {
@@ -545,13 +714,21 @@ var WebviewContent = class {
   static generateProjectTypeLegend(extensionUri, webview) {
     const ionicIcon = this.getMediaUri(PROJECT_CONFIGS.ionic.icon, extensionUri, webview);
     const laravelIcon = this.getMediaUri(PROJECT_CONFIGS.laravel.icon, extensionUri, webview);
+    const reactNativeIcon = this.getMediaUri(PROJECT_CONFIGS["react-native"].icon, extensionUri, webview);
+    const cordovaIcon = this.getMediaUri(PROJECT_CONFIGS.cordova.icon, extensionUri, webview);
     return `
             <div class="project-type-icons" aria-hidden="true">
+                <span class="type-icon-chip" title="Laravel">
+                    <img src="${laravelIcon}" alt="Laravel" class="type-icon" />
+                </span>
                 <span class="type-icon-chip" title="Ionic">
                     <img src="${ionicIcon}" alt="Ionic" class="type-icon" />
                 </span>
-                <span class="type-icon-chip" title="Laravel">
-                    <img src="${laravelIcon}" alt="Laravel" class="type-icon" />
+                <span class="type-icon-chip" title="React Native">
+                    <img src="${reactNativeIcon}" alt="React Native" class="type-icon" />
+                </span>
+                <span class="type-icon-chip" title="Cordova">
+                    <img src="${cordovaIcon}" alt="Cordova" class="type-icon" />
                 </span>
             </div>
         `;
@@ -580,13 +757,13 @@ var WebviewContent = class {
    * Genera las secciones de información de cada tipo de proyecto
    */
   static generateProjectInfoSections(extensionUri, webview) {
-    return ["laravel", "ionic", "other"].map((type) => {
+    return ["laravel", "ionic", "ionic-cordova", "react-native", "cordova", "other"].map((type) => {
       const config = PROJECT_CONFIGS[type];
       const versionsHtml = this.generateVersionsHtml(config);
       const commandsHtml = this.generateCommandsHtml(config);
       const healthHtml = this.generateProjectHealthHtml(type);
       const liveLogsHtml = this.generateLiveLogsHtml(type);
-      const appLogoHtml = type === "ionic" ? this.generateIonicLogoHtml() : "";
+      const appLogoHtml = type === "ionic" || type === "ionic-cordova" ? this.generateIonicLogoHtml(type) : "";
       const iconUrl = config.icon.includes(".svg") ? this.getMediaUri(config.icon, extensionUri, webview) : null;
       const isEmoji = !config.icon.includes(".svg");
       return `
@@ -704,15 +881,18 @@ var WebviewContent = class {
         `;
   }
   /**
-   * Genera el bloque visual para el logo de la app Ionic
+   * Genera el bloque visual para el logo de la app Ionic / Ionic+Cordova
    */
-  static generateIonicLogoHtml() {
+  static generateIonicLogoHtml(type = "ionic") {
+    const sectionId = type === "ionic-cordova" ? "appLogoSectionIonicCordova" : "appLogoSectionIonic";
+    const imgId = type === "ionic-cordova" ? "appLogoIonicCordova" : "appLogoIonic";
+    const emptyId = type === "ionic-cordova" ? "appLogoIonicCordovaEmpty" : "appLogoIonicEmpty";
     return `
-            <div class="app-logo-section" id="appLogoSectionIonic">
+            <div class="app-logo-section" id="${sectionId}">
                 <div class="app-logo-header">LOGO ACTUAL DE LA APP</div>
                 <div class="app-logo-preview">
-                    <img id="appLogoIonic" class="app-logo-image" alt="Logo de la app" />
-                    <span id="appLogoIonicEmpty" class="app-logo-empty">No se detect\xF3 logo del proyecto</span>
+                    <img id="${imgId}" class="app-logo-image" alt="Logo de la app" />
+                    <span id="${emptyId}" class="app-logo-empty">No se detect\xF3 logo del proyecto</span>
                 </div>
             </div>
         `;
@@ -769,17 +949,6 @@ var WebviewContent = class {
             min-height: 0;
         }
 
-        /* Selector de terminal */
-        .terminal-selector-wrapper {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            padding: 10px;
-            border: 1px solid var(--vscode-widget-border);
-            border-radius: 10px;
-            background: var(--vscode-editor-background);
-        }
-
         .terminal-label {
             font-size: 11px;
             font-weight: 700;
@@ -819,61 +988,7 @@ var WebviewContent = class {
             object-fit: contain;
         }
 
-        .terminal-select {
-            width: 100%;
-            padding: 8px 10px;
-            border: 2px solid var(--vscode-inputBorder);
-            background: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 500;
-            font-family: var(--vscode-font-family);
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
 
-        .terminal-select:hover {
-            border-color: var(--vscode-focusBorder);
-        }
-
-        .terminal-select:focus {
-            outline: none;
-            border-color: var(--vscode-focusBorder);
-            box-shadow: 0 0 0 2px var(--vscode-focusBorder);
-            opacity: 0.5;
-        }
-
-        .terminal-status {
-            font-size: 11px;
-            color: var(--vscode-descriptionForeground);
-            font-style: italic;
-            opacity: 0.7;
-        }
-
-        .terminal-status.selected {
-            color: var(--vscode-chart-green);
-            opacity: 1;
-            font-weight: 600;
-        }
-
-        .terminal-hint {
-            padding: 8px 10px;
-            background: var(--vscode-editor-background);
-            border-left: 3px solid var(--vscode-chart-blue);
-            border-radius: 3px;
-            font-size: 10px;
-            line-height: 1.4;
-            color: var(--vscode-descriptionForeground);
-        }
-
-        .terminal-hint code {
-            background: var(--vscode-input-background);
-            padding: 2px 4px;
-            border-radius: 2px;
-            font-family: monospace;
-            font-size: 9px;
-        }
 
         .runtime-status-wrapper {
             margin-top: 2px;
@@ -1689,6 +1804,152 @@ var WebviewContent = class {
         .project-info-wrapper::-webkit-scrollbar-thumb:hover {
             background: var(--vscode-widget-border);
         }
+
+        /* === Transiciones globales === */
+        .command-card,
+        .version-item,
+        .health-check-item,
+        .project-quick-btn,
+        .live-log-row {
+            transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .project-info {
+            transition: border-top-color 0.3s ease;
+            border-top: 3px solid var(--project-accent, var(--vscode-focusBorder));
+        }
+
+        /* === Notificaciones === */
+        .extension-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .notif-bell-btn {
+            background: transparent;
+            border: 1px solid var(--vscode-widget-border);
+            border-radius: 6px;
+            padding: 5px 8px;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--vscode-foreground);
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: background 0.2s ease, border-color 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .notif-bell-btn:hover,
+        .notif-bell-btn.active {
+            background: var(--vscode-button-secondaryBackground);
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .notif-badge {
+            background: var(--vscode-errorForeground);
+            color: #fff;
+            border-radius: 999px;
+            font-size: 9px;
+            font-weight: 700;
+            padding: 1px 4px;
+            min-width: 14px;
+            text-align: center;
+        }
+
+        .notifications-panel {
+            border: 1px solid var(--vscode-focusBorder);
+            border-radius: 8px;
+            background: var(--vscode-editor-background);
+            overflow: hidden;
+        }
+
+        .notif-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            background: var(--vscode-input-background);
+            border-bottom: 1px solid var(--vscode-widget-border);
+        }
+
+        .notif-panel-title {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .notif-clear-btn {
+            border: 1px solid var(--vscode-widget-border);
+            background: transparent;
+            color: var(--vscode-descriptionForeground);
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 10px;
+            cursor: pointer;
+        }
+
+        .notif-clear-btn:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .notif-list {
+            max-height: 220px;
+            overflow-y: auto;
+            padding: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .notif-empty {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            text-align: center;
+            padding: 10px;
+        }
+
+        .notif-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 6px 8px;
+            border: 1px solid var(--vscode-widget-border);
+            border-radius: 5px;
+            background: var(--vscode-input-background);
+            border-left: 3px solid var(--vscode-descriptionForeground);
+        }
+
+        .notif-item.notif-error  { border-left-color: var(--vscode-errorForeground); }
+        .notif-item.notif-warn   { border-left-color: var(--vscode-terminal-ansiYellow); }
+        .notif-item.notif-cmd    { border-left-color: var(--vscode-terminal-ansiBlue); }
+        .notif-item.notif-project { border-left-color: var(--vscode-terminal-ansiGreen); }
+
+        .notif-icon { font-size: 12px; flex-shrink: 0; }
+
+        .notif-body {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+
+        .notif-text {
+            font-size: 11px;
+            color: var(--vscode-foreground);
+            word-break: break-word;
+        }
+
+        .notif-time {
+            font-size: 9px;
+            color: var(--vscode-descriptionForeground);
+            opacity: 0.7;
+        }
+
         `;
   }
   /**
@@ -1698,21 +1959,35 @@ var WebviewContent = class {
     return `
         const vscode = acquireVsCodeApi();
         const VERSION_KEY_MAP = ${JSON.stringify(versionKeyMap)};
+        const ACCENT_COLORS = {
+            laravel: '#FF2D20',
+            ionic: '#3880FF',
+            'ionic-cordova': '#3880FF',
+            'react-native': '#61DAFB',
+            cordova: '#E8AA2C',
+            other: '#808080'
+        };
+        const notifications = [];
+        let notifUnreadCount = 0;
+        const MAX_NOTIFICATIONS = 30;
         const persistedState = vscode.getState() || {};
-        let selectedTerminal = typeof persistedState.selectedTerminal === 'string'
-            ? persistedState.selectedTerminal
-            : null;
         let selectedProjectName = typeof persistedState.selectedProjectName === 'string'
             ? persistedState.selectedProjectName
             : '';
         const liveLogsByType = {
             laravel: [],
             ionic: [],
+            'ionic-cordova': [],
+            'react-native': [],
+            cordova: [],
             other: []
         };
         const liveLogsFilterByType = {
             laravel: 'all',
             ionic: 'all',
+            'ionic-cordova': 'all',
+            'react-native': 'all',
+            cordova: 'all',
             other: 'all'
         };
 
@@ -1731,7 +2006,6 @@ var WebviewContent = class {
 
         function persistUiState() {
             vscode.setState({
-                selectedTerminal,
                 selectedProjectName
             });
         }
@@ -1874,30 +2148,7 @@ var WebviewContent = class {
                 .join('');
         }
 
-        function updateTerminalStatusFromSelect() {
-            const select = document.getElementById('terminalSelect');
-            const statusEl = document.getElementById('terminalStatus');
-
-            if (!select || !statusEl) {
-                return;
-            }
-
-            selectedTerminal = select.value || null;
-
-            if (selectedTerminal) {
-                const selectedText = select.options[select.selectedIndex]?.text || '';
-                statusEl.textContent = '\u2713 ' + selectedText;
-                statusEl.classList.add('selected');
-            } else {
-                statusEl.textContent = '';
-                statusEl.classList.remove('selected');
-            }
-
-            persistUiState();
-        }
-
         function initializePersistedSelections() {
-            const terminalSelect = document.getElementById('terminalSelect');
             const projectSelect = document.getElementById('projectSelect');
 
             if (projectSelect && selectedProjectName) {
@@ -1912,23 +2163,7 @@ var WebviewContent = class {
                 }
             }
 
-            if (terminalSelect && selectedTerminal) {
-                terminalSelect.value = selectedTerminal;
-                if (terminalSelect.value !== selectedTerminal) {
-                    selectedTerminal = null;
-                }
-            }
-
             updateProjectQuickToolsState();
-            updateTerminalStatusFromSelect();
-
-            if (selectedTerminal) {
-                vscode.postMessage({
-                    command: 'terminalSelected',
-                    terminalId: selectedTerminal
-                });
-            }
-
             persistUiState();
         }
 
@@ -1988,34 +2223,15 @@ var WebviewContent = class {
         }
         
         /**
-         * Selecciona una terminal
-         */
-        function selectTerminal() {
-            updateTerminalStatusFromSelect();
-
-            if (selectedTerminal) {
-                vscode.postMessage({
-                    command: 'terminalSelected',
-                    terminalId: selectedTerminal
-                });
-            }
-        }
-        
-        /**
-         * Ejecuta un comando
+         * Ejecuta un comando (la terminal se gestiona autom\xE1ticamente por proyecto)
          */
         function executeCommand(id, command) {
-            if (!selectedTerminal) {
-                alert('Por favor, selecciona una terminal primero');
-                document.getElementById('terminalSelect').focus();
-                return;
-            }
+            addNotification('cmd', 'Ejecutando: ' + id + (selectedProjectName ? ' \xB7 ' + selectedProjectName : ''));
             
             vscode.postMessage({ 
                 command: 'executeCommand', 
                 commandId: id,
-                commandText: command,
-                terminalId: selectedTerminal
+                commandText: command
             });
         }
 
@@ -2063,28 +2279,6 @@ var WebviewContent = class {
             const LARAVEL_DB_ENV_KEYS = ['DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD'];
             const IONIC_API_KEYS = ['apiUrl (dev)', 'apiUrl (prod)'];
 
-            function renderTerminalOptions(terminals) {
-                const safeTerminals = Array.isArray(terminals) ? terminals : [];
-                const vsCodeTerminals = safeTerminals
-                    .filter(t => t.type === 'vscode')
-                    .map(t => '<option value="' + t.id + '">' + t.name + '</option>')
-                    .join('');
-
-                const externalTerminals = safeTerminals
-                    .filter(t => t.type === 'external')
-                    .map(t => '<option value="' + t.id + '">' + t.name + '</option>')
-                    .join('');
-
-                return '<optgroup label="VS Code">'
-                    + vsCodeTerminals
-                    + '<option value="vscode:new">+ Crear nueva terminal</option>'
-                    + '</optgroup>'
-                    + '<optgroup label="Externa">'
-                    + externalTerminals
-                    + '<option value="external:native">\u{1F5A5}\uFE0F Terminal Externa</option>'
-                    + '</optgroup>';
-            }
-            
             if (message.command === 'updateProjectInfo') {
                 const project = message.project;
                 const typeCapitalized = project.type.charAt(0).toUpperCase() + project.type.slice(1);
@@ -2094,6 +2288,7 @@ var WebviewContent = class {
                 const infoSection = document.getElementById(project.type + 'Info');
                 if (infoSection) {
                     infoSection.classList.add('active');
+                    applyProjectAccentColor(infoSection, project.type);
                 }
 
                 // Actualizar informaci\xF3n
@@ -2109,10 +2304,13 @@ var WebviewContent = class {
                 selectedProjectName = project.name;
                 persistUiState();
                 updateProjectQuickToolsState();
+                addNotification('project', 'Proyecto: ' + project.name + ' (' + project.type + ')');
 
-                // Actualizar logo actual de la app (Ionic)
+                // Actualizar logo actual de la app (Ionic / Ionic+Cordova)
                 const appLogoIonic = document.getElementById('appLogoIonic');
                 const appLogoIonicEmpty = document.getElementById('appLogoIonicEmpty');
+                const appLogoIonicCordova = document.getElementById('appLogoIonicCordova');
+                const appLogoIonicCordovaEmpty = document.getElementById('appLogoIonicCordovaEmpty');
 
                 if (appLogoIonic && appLogoIonicEmpty) {
                     if (project.type === 'ionic' && project.appLogoUri) {
@@ -2123,6 +2321,18 @@ var WebviewContent = class {
                         appLogoIonic.removeAttribute('src');
                         appLogoIonic.style.display = 'none';
                         appLogoIonicEmpty.style.display = 'inline-block';
+                    }
+                }
+
+                if (appLogoIonicCordova && appLogoIonicCordovaEmpty) {
+                    if (project.type === 'ionic-cordova' && project.appLogoUri) {
+                        appLogoIonicCordova.setAttribute('src', project.appLogoUri);
+                        appLogoIonicCordova.style.display = 'block';
+                        appLogoIonicCordovaEmpty.style.display = 'none';
+                    } else {
+                        appLogoIonicCordova.removeAttribute('src');
+                        appLogoIonicCordova.style.display = 'none';
+                        appLogoIonicCordovaEmpty.style.display = 'inline-block';
                     }
                 }
 
@@ -2162,7 +2372,7 @@ var WebviewContent = class {
                                     \`;
                                 }
 
-                                if (project.type === 'ionic' && IONIC_API_KEYS.includes(key)) {
+                                if ((project.type === 'ionic' || project.type === 'ionic-cordova') && IONIC_API_KEYS.includes(key)) {
                                     const encodedValue = encodeURIComponent(String(rawValue));
 
                                     return \`
@@ -2239,7 +2449,7 @@ var WebviewContent = class {
                             });
                         }
 
-                        if (project.type === 'ionic') {
+                        if (project.type === 'ionic' || project.type === 'ionic-cordova') {
                             const apiEditButtons = versionsContainer.querySelectorAll('.ionic-api-edit-btn');
                             apiEditButtons.forEach((button) => {
                                 button.addEventListener('click', () => {
@@ -2259,36 +2469,107 @@ var WebviewContent = class {
                 }
             }
             
-            if (message.command === 'updateTerminals') {
-                const terminalSelect = document.getElementById('terminalSelect');
-                if (terminalSelect) {
-                    if (message.terminals) {
-                        const placeholder = '<option value="">Selecciona una terminal...</option>';
-                        terminalSelect.innerHTML = placeholder + renderTerminalOptions(message.terminals);
-                    }
-
-                    if (typeof message.selectedTerminalId === 'string') {
-                        terminalSelect.value = message.selectedTerminalId;
-                    }
-
-                    updateTerminalStatusFromSelect();
-                }
-            }
-
             if (message.command === 'updateRuntimeRuns') {
                 renderRuntimeRuns(message.runs);
             }
 
             if (message.command === 'updateProjectHealth') {
                 renderProjectHealth(message.projectType, message.health);
+                if (message.health && (message.health.overallStatus === 'error' || message.health.overallStatus === 'warn')) {
+                    addNotification(
+                        message.health.overallStatus,
+                        'Salud ' + message.health.overallStatus.toUpperCase() + ': ' + (message.health.summary || message.projectType)
+                    );
+                }
             }
 
             if (message.command === 'updateLiveLogs') {
                 const projectType = message.projectType || 'other';
-                liveLogsByType[projectType] = Array.isArray(message.entries) ? message.entries : [];
+                const newEntries = Array.isArray(message.entries) ? message.entries : [];
+                const prevCount = (liveLogsByType[projectType] || []).length;
+                liveLogsByType[projectType] = newEntries;
                 renderLiveLogs(projectType);
+                if (newEntries.length > prevCount) {
+                    const newOnes = newEntries.slice(prevCount);
+                    const errorEntry = newOnes.find(function(e) { return e.level === 'error'; });
+                    if (errorEntry) {
+                        addNotification('error', 'Error en ' + projectType + ': ' + String(errorEntry.message || '').slice(0, 60));
+                    }
+                }
             }
         });
+
+        // === NOTIFICACIONES ===
+        function addNotification(type, text) {
+            const entry = {
+                type: type,
+                text: text,
+                time: new Date().toLocaleTimeString('es-ES', { hour12: false })
+            };
+            notifications.unshift(entry);
+            if (notifications.length > MAX_NOTIFICATIONS) {
+                notifications.pop();
+            }
+            notifUnreadCount++;
+            const badge = document.getElementById('notifBadge');
+            if (badge) {
+                badge.textContent = String(notifUnreadCount > 9 ? '9+' : notifUnreadCount);
+                badge.hidden = false;
+            }
+            const panel = document.getElementById('notificationsPanel');
+            if (panel && !panel.hidden) {
+                renderNotifications();
+            }
+        }
+
+        function renderNotifications() {
+            const list = document.getElementById('notifList');
+            if (!list) { return; }
+            if (!notifications.length) {
+                list.innerHTML = '<div class="notif-empty">Sin notificaciones</div>';
+                return;
+            }
+            const iconMap = { project: '\u{1F4C2}', cmd: '\u25B6\uFE0F', error: '\u{1F534}', warn: '\u26A0\uFE0F' };
+            list.innerHTML = notifications.map(function(n) {
+                const icon = iconMap[n.type] || '\u2139\uFE0F';
+                return '<div class="notif-item notif-' + escapeHtml(n.type) + '">'
+                    + '<span class="notif-icon">' + icon + '</span>'
+                    + '<div class="notif-body">'
+                    + '<span class="notif-text">' + escapeHtml(n.text) + '</span>'
+                    + '<span class="notif-time">' + escapeHtml(n.time) + '</span>'
+                    + '</div>'
+                    + '</div>';
+            }).join('');
+        }
+
+        function toggleNotifications() {
+            const panel = document.getElementById('notificationsPanel');
+            const btn = document.getElementById('notifBellBtn');
+            if (!panel) { return; }
+            panel.hidden = !panel.hidden;
+            if (btn) { btn.classList.toggle('active', !panel.hidden); }
+            if (!panel.hidden) {
+                notifUnreadCount = 0;
+                const badge = document.getElementById('notifBadge');
+                if (badge) { badge.hidden = true; }
+                renderNotifications();
+            }
+        }
+
+        function clearNotifications() {
+            notifications.length = 0;
+            notifUnreadCount = 0;
+            const badge = document.getElementById('notifBadge');
+            if (badge) { badge.hidden = true; }
+            renderNotifications();
+        }
+
+        // === ACCENT COLOR ===
+        function applyProjectAccentColor(element, projectType) {
+            const color = ACCENT_COLORS[projectType] || ACCENT_COLORS.other;
+            element.style.setProperty('--project-accent', color);
+            element.style.borderTopColor = color;
+        }
 
         initializePersistedSelections();
         `;
@@ -2314,7 +2595,7 @@ var SidebarProvider = class {
   _extensionUri;
   projects;
   selectedProject = null;
-  selectedTerminalId = null;
+  projectTerminals = /* @__PURE__ */ new Map();
   logger = console;
   webviewView = null;
   runtimeSessions = /* @__PURE__ */ new Map();
@@ -2337,29 +2618,11 @@ var SidebarProvider = class {
       enableScripts: true,
       localResourceRoots: [this._extensionUri, ...workspaceRoots]
     };
-    const terminals = this.getAvailableTerminals();
-    webviewView.webview.html = WebviewContent.generate(this.projects, terminals, this._extensionUri, webviewView.webview);
+    webviewView.webview.html = WebviewContent.generate(this.projects, [], this._extensionUri, webviewView.webview);
     this.setupMessageHandlers(webviewView);
     this.pushTerminalAndRuntimeState(webviewView);
     this.pushSelectedProjectInfo(webviewView);
     this.refreshProjectInsights(webviewView);
-  }
-  /**
-   * Obtiene las terminales disponibles
-   */
-  getAvailableTerminals() {
-    const terminals = [];
-    vscode2.window.terminals.forEach((terminal, index) => {
-      if (this.runtimeHiddenTerminals.has(terminal)) {
-        return;
-      }
-      terminals.push({
-        id: `vscode:${terminal.name}:${index}`,
-        name: `\u{1F4DF} ${terminal.name || `Terminal ${index + 1}`}`,
-        type: "vscode"
-      });
-    });
-    return terminals;
   }
   /**
    * Configura los manejadores de mensajes del webview
@@ -2368,14 +2631,10 @@ var SidebarProvider = class {
     webviewView.webview.onDidReceiveMessage((message) => {
       this.logger.log("[SidebarProvider] Message received:", message);
       switch (message.command) {
-        case "terminalSelected":
-          this.handleTerminalSelection(message.terminalId);
-          break;
         case "executeCommand":
           this.handleCommandExecution(
             message.commandId,
             message.commandText,
-            message.terminalId,
             webviewView
           );
           break;
@@ -2411,29 +2670,34 @@ var SidebarProvider = class {
     });
   }
   /**
-   * Maneja la selección de terminal
+   * Obtiene o crea la terminal dedicada al proyecto seleccionado
    */
-  handleTerminalSelection(terminalId) {
-    this.selectedTerminalId = terminalId;
-    this.logger.log(`[SidebarProvider] Terminal selected: ${terminalId}`);
+  getOrCreateProjectTerminal() {
+    const projectName = this.selectedProject.name;
+    const existing = this.projectTerminals.get(projectName);
+    if (existing) {
+      return existing;
+    }
+    const terminal = vscode2.window.createTerminal({
+      name: `Myrmidon \u2014 ${projectName}`,
+      hideFromUser: false
+    });
+    this.projectTerminals.set(projectName, terminal);
+    this.logger.log(`[SidebarProvider] Created dedicated terminal for project: ${projectName}`);
+    return terminal;
   }
   /**
    * Maneja la ejecución de un comando
    */
-  async handleCommandExecution(commandId, commandText, terminalId, webviewView) {
+  async handleCommandExecution(commandId, commandText, webviewView) {
     this.logger.log(`[SidebarProvider] Executing command: ${commandId}`);
     this.logger.log(`[SidebarProvider] Command text: ${commandText}`);
-    this.logger.log(`[SidebarProvider] Terminal ID: ${terminalId}`);
     if (!this.selectedProject) {
       vscode2.window.showErrorMessage("Por favor, selecciona un proyecto primero");
       return;
     }
-    if (!this.isRuntimeCommand(commandId) && !terminalId) {
-      vscode2.window.showErrorMessage("Por favor, selecciona una terminal antes de ejecutar comandos");
-      return;
-    }
     if (commandId === "ionic-prepare-release") {
-      await this.handlePrepareToRelease(terminalId, webviewView);
+      await this.handlePrepareToRelease(webviewView);
       return;
     }
     if (this.isRuntimeCommand(commandId)) {
@@ -2445,18 +2709,18 @@ var SidebarProvider = class {
     }
     const projectPath = this.selectedProject.path;
     const fullCommand = `cd "${projectPath}" && ${commandText}`;
-    this.dispatchCommandToTerminal(terminalId, fullCommand, webviewView);
+    const terminal = this.getOrCreateProjectTerminal();
+    terminal.show();
+    terminal.sendText(fullCommand);
+    this.logger.log(`[SidebarProvider] Command sent to project terminal: ${terminal.name}`);
+    vscode2.window.showInformationMessage(`\u2713 Ejecutando en terminal: ${terminal.name}`);
   }
   /**
    * Flujo guiado para preparar un release firmado de Android (AAB)
    */
-  async handlePrepareToRelease(terminalId, webviewView) {
+  async handlePrepareToRelease(webviewView) {
     if (!this.selectedProject || this.selectedProject.type !== "ionic") {
       vscode2.window.showErrorMessage("Prepare To Release solo est\xE1 disponible para proyectos Ionic");
-      return;
-    }
-    if (terminalId.startsWith("external:")) {
-      vscode2.window.showErrorMessage("Por seguridad, usa una terminal de VS Code para firmar el AAB");
       return;
     }
     const projectPath = this.selectedProject.path;
@@ -2610,22 +2874,12 @@ var SidebarProvider = class {
       keyPassword,
       versionCode: releaseVersionCode
     });
-    this.dispatchCommandToTerminal(terminalId, fullCommand, webviewView);
+    const terminal = this.getOrCreateProjectTerminal();
+    terminal.show();
+    terminal.sendText(fullCommand);
     vscode2.window.showInformationMessage(
       `\u2713 Flujo de release enviado (versi\xF3n ${releaseVersion}, build ${releaseVersionCode})`
     );
-  }
-  /**
-   * Envía un comando a la terminal elegida por el usuario
-   */
-  dispatchCommandToTerminal(terminalId, fullCommand, webviewView) {
-    if (terminalId === "vscode:new") {
-      this.executeInNewVSCodeTerminal(fullCommand, webviewView);
-    } else if (terminalId.startsWith("vscode:")) {
-      this.executeInSelectedVSCodeTerminal(terminalId, fullCommand, webviewView);
-    } else if (terminalId.startsWith("external:")) {
-      this.executeInExternalTerminal(fullCommand, terminalId);
-    }
   }
   /**
    * Determina si el comando es una ejecución larga que se gestiona como run activo
@@ -2837,6 +3091,13 @@ var SidebarProvider = class {
       let removedSessionId = "";
       if (this.runtimeHiddenTerminals.has(terminal)) {
         this.runtimeHiddenTerminals.delete(terminal);
+      }
+      for (const [projectName, projectTerminal] of this.projectTerminals.entries()) {
+        if (projectTerminal === terminal) {
+          this.projectTerminals.delete(projectName);
+          this.logger.log(`[SidebarProvider] Project terminal removed after close: ${projectName}`);
+          break;
+        }
       }
       for (const [sessionId, runtimeSession] of this.runtimeSessions.entries()) {
         if (runtimeSession.terminal === terminal) {
@@ -3207,23 +3468,13 @@ var SidebarProvider = class {
     }));
   }
   /**
-   * Sincroniza terminales visibles y ejecuciones activas en el webview
+   * Sincroniza ejecuciones activas en el webview
    */
   pushTerminalAndRuntimeState(targetWebviewView) {
     const activeWebview = targetWebviewView || this.webviewView;
     if (!activeWebview) {
       return;
     }
-    const availableTerminals = this.getAvailableTerminals();
-    const hasCurrentSelection = this.selectedTerminalId ? availableTerminals.some((terminal) => terminal.id === this.selectedTerminalId) : false;
-    if (!hasCurrentSelection) {
-      this.selectedTerminalId = "";
-    }
-    activeWebview.webview.postMessage({
-      command: "updateTerminals",
-      terminals: availableTerminals,
-      selectedTerminalId: this.selectedTerminalId || ""
-    });
     activeWebview.webview.postMessage({
       command: "updateRuntimeRuns",
       runs: this.getRuntimeRunsPayload()
@@ -3455,119 +3706,6 @@ var SidebarProvider = class {
     return value.replace(/[\\"`$]/g, "\\$&");
   }
   /**
-   * Ejecuta un comando en una terminal existente de VS Code
-   */
-  executeInSelectedVSCodeTerminal(terminalId, fullCommand, webviewView) {
-    const terminal = this.resolveVSCodeTerminalFromId(terminalId);
-    if (terminal) {
-      terminal.show();
-      terminal.sendText(fullCommand);
-      this.logger.log(`[SidebarProvider] Command sent to existing terminal: ${terminal.name}`);
-      vscode2.window.showInformationMessage(
-        `\u2713 Ejecutando en terminal: ${terminal.name}`
-      );
-    } else if (webviewView) {
-      this.executeInNewVSCodeTerminal(fullCommand, webviewView);
-    }
-  }
-  /**
-   * Resuelve una terminal de VS Code a partir de su id serializado
-   */
-  resolveVSCodeTerminalFromId(terminalId) {
-    if (!terminalId.startsWith("vscode:")) {
-      return void 0;
-    }
-    const lastSeparator = terminalId.lastIndexOf(":");
-    if (lastSeparator <= "vscode:".length) {
-      return void 0;
-    }
-    const namePart = terminalId.slice("vscode:".length, lastSeparator);
-    const indexPart = terminalId.slice(lastSeparator + 1);
-    const parsedIndex = Number(indexPart);
-    if (!Number.isNaN(parsedIndex)) {
-      const byIndex = vscode2.window.terminals[parsedIndex];
-      if (byIndex && byIndex.name === namePart) {
-        return byIndex;
-      }
-    }
-    return vscode2.window.terminals.find((terminal) => terminal.name === namePart);
-  }
-  /**
-   * Ejecuta un comando en una nueva terminal de VS Code
-   */
-  executeInNewVSCodeTerminal(fullCommand, webviewView) {
-    const terminal = vscode2.window.createTerminal({
-      name: "Myrmidon",
-      hideFromUser: false
-    });
-    terminal.show();
-    terminal.sendText(fullCommand);
-    this.selectedTerminalId = `vscode:${terminal.name}:${vscode2.window.terminals.length - 1}`;
-    this.logger.log(`[SidebarProvider] Created new terminal: ${terminal.name}`);
-    vscode2.window.showInformationMessage(`\u2713 Ejecutando en nueva terminal VS Code`);
-    this.pushTerminalAndRuntimeState(webviewView);
-  }
-  /**
-   * Ejecuta un comando en la terminal externa predefinida de VS Code
-   */
-  async executeInExternalTerminal(fullCommand, terminalId) {
-    this.logger.log(`[SidebarProvider] Opening external terminal with command: ${fullCommand}`);
-    await vscode2.env.clipboard.writeText(fullCommand);
-    try {
-      await vscode2.commands.executeCommand("workbench.action.terminal.openNativeConsole");
-      this.logger.log(`[SidebarProvider] External terminal opened`);
-      vscode2.window.showInformationMessage(
-        `\u2713 Terminal externa abierta
-
-Comando copiado al portapapeles:
-${fullCommand}
-
-Pega (Ctrl+V) y presiona Enter`
-      );
-    } catch (error) {
-      this.logger.error("[SidebarProvider] Error opening external terminal:", error);
-      vscode2.window.showErrorMessage(
-        `No se pudo abrir terminal externa. Intenta manualmente:
-
-${fullCommand}`
-      );
-    }
-  }
-  /**
-   * Abre la terminal nativa configurada en VS Code
-   */
-  async openNativeTerminal(fullCommand) {
-    try {
-      const fs3 = require("fs");
-      const path3 = require("path");
-      const os2 = require("os");
-      const tempDir = os2.tmpdir();
-      const tempScript = path3.join(tempDir, `myrmidon_${Date.now()}.sh`);
-      fs3.writeFileSync(tempScript, `#!/bin/bash
-${fullCommand}
-`, { mode: 493 });
-      const { execFile } = require("child_process");
-      execFile("sh", [tempScript], (error) => {
-        fs3.unlink(tempScript, (err) => {
-          if (err) {
-            this.logger.warn("Could not delete temp script:", err);
-          }
-        });
-        if (error) {
-          this.logger.error("[SidebarProvider] Error in native terminal:", error);
-          vscode2.window.showErrorMessage(`Error al ejecutar en terminal nativa: ${error.message}`);
-        } else {
-          vscode2.window.showInformationMessage(`\u2713 Ejecutando en terminal nativa`);
-        }
-      });
-    } catch (error) {
-      this.logger.error("[SidebarProvider] Error opening native terminal:", error);
-      vscode2.window.showErrorMessage(
-        `No se pudo abrir terminal nativa: ${error.message}`
-      );
-    }
-  }
-  /**
    * Maneja la selección de un proyecto
    */
   handleProjectSelection(projectName, webviewView) {
@@ -3613,14 +3751,18 @@ ${fullCommand}
         break;
       }
       case "open-project-terminal": {
-        const terminal = vscode2.window.createTerminal({
-          name: `Myrmidon ${targetProject.name}`,
-          cwd: targetProject.path,
-          hideFromUser: false
-        });
-        terminal.show();
-        this.selectedTerminalId = `vscode:${terminal.name}:${vscode2.window.terminals.length - 1}`;
-        this.pushTerminalAndRuntimeState(webviewView);
+        const existingProjectTerminal = this.projectTerminals.get(targetProject.name);
+        if (existingProjectTerminal) {
+          existingProjectTerminal.show();
+        } else {
+          const terminal = vscode2.window.createTerminal({
+            name: `Myrmidon \u2014 ${targetProject.name}`,
+            cwd: targetProject.path,
+            hideFromUser: false
+          });
+          this.projectTerminals.set(targetProject.name, terminal);
+          terminal.show();
+        }
         break;
       }
       default:

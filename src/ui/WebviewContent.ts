@@ -9,9 +9,8 @@ export class WebviewContent {
     /**
      * Genera el HTML completo del webview
      */
-    static generate(projects: Project[], terminals: any[] = [], extensionUri?: any, webview?: any): string {
+    static generate(projects: Project[], _terminals: any[] = [], extensionUri?: any, webview?: any): string {
         const projectsHtml = this.generateProjectOptions(projects);
-        const terminalsHtml = this.generateTerminalOptions(terminals);
         const projectTypeIcons = this.generateProjectTypeLegend(extensionUri, webview);
         const projectInfoSections = this.generateProjectInfoSections(extensionUri, webview);
         const versionKeyMap = this.getVersionKeyMap();
@@ -33,23 +32,24 @@ export class WebviewContent {
         <!-- Título -->
         <header class="extension-header">
             <h1 class="extension-title">MYRMIDON</h1>
+            <button type="button" class="notif-bell-btn" id="notifBellBtn" onclick="toggleNotifications()" title="Notificaciones">
+                🔔<span class="notif-badge" id="notifBadge" hidden>0</span>
+            </button>
         </header>
+        <div class="notifications-panel" id="notificationsPanel" hidden>
+            <div class="notif-panel-header">
+                <span class="notif-panel-title">NOTIFICACIONES</span>
+                <button type="button" class="notif-clear-btn" onclick="clearNotifications()">Limpiar</button>
+            </div>
+            <div class="notif-list" id="notifList">
+                <div class="notif-empty">Sin notificaciones</div>
+            </div>
+        </div>
 
-        <!-- Selector de terminal -->
-        <div class="terminal-selector-wrapper">
-            <label for="terminalSelect" class="terminal-label">🖥️ TERMINAL</label>
-            <select class="terminal-select" id="terminalSelect" onchange="selectTerminal()">
-                <option value="">Selecciona una terminal...</option>
-                ${terminalsHtml}
-            </select>
-            <span class="terminal-status" id="terminalStatus"></span>
-            <div class="terminal-hint">
-                <small>💡 Terminal externa: Se abrirá el terminal configurado en VS Code. El comando se copiará automáticamente.</small>
-            </div>
-            <div class="runtime-status-wrapper" id="runtimeStatusWrapper" hidden>
-                <span class="runtime-status-title">EJECUCIONES ACTIVAS</span>
-                <div class="runtime-status-list" id="runtimeStatusList"></div>
-            </div>
+        <!-- Ejecuciones activas -->
+        <div class="runtime-status-wrapper" id="runtimeStatusWrapper" hidden>
+            <span class="runtime-status-title">EJECUCIONES ACTIVAS</span>
+            <div class="runtime-status-list" id="runtimeStatusList"></div>
         </div>
 
         <!-- Selector de proyectos -->
@@ -94,43 +94,6 @@ export class WebviewContent {
     }
 
     /**
-     * Genera las opciones del selector de terminales
-     */
-    private static generateTerminalOptions(terminals: any[]): string {
-        if (!terminals || terminals.length === 0) {
-            return `
-                <optgroup label="VS Code">
-                    <option value="vscode:new">+ Crear nueva terminal</option>
-                </optgroup>
-                <optgroup label="Externa">
-                    <option value="external:native">🖥️ Terminal Externa</option>
-                </optgroup>
-            `;
-        }
-
-        const vsCodeTerminals = terminals
-            .filter((t: any) => t.type === 'vscode')
-            .map((t: any) => `<option value="${t.id}">${t.name}</option>`)
-            .join('');
-
-        const externalTerminals = terminals
-            .filter((t: any) => t.type === 'external')
-            .map((t: any) => `<option value="${t.id}">${t.name}</option>`)
-            .join('');
-
-        return `
-            <optgroup label="VS Code">
-                ${vsCodeTerminals}
-                <option value="vscode:new">+ Crear nueva terminal</option>
-            </optgroup>
-            <optgroup label="Externa">
-                ${externalTerminals}
-                <option value="external:native">🖥️ Terminal Externa</option>
-            </optgroup>
-        `;
-    }
-
-    /**
      * Genera las opciones del selector de proyectos
      */
     private static generateProjectOptions(projects: Project[]): string {
@@ -147,14 +110,22 @@ export class WebviewContent {
     private static generateProjectTypeLegend(extensionUri?: any, webview?: any): string {
         const ionicIcon = this.getMediaUri(PROJECT_CONFIGS.ionic.icon, extensionUri, webview);
         const laravelIcon = this.getMediaUri(PROJECT_CONFIGS.laravel.icon, extensionUri, webview);
+        const reactNativeIcon = this.getMediaUri(PROJECT_CONFIGS['react-native'].icon, extensionUri, webview);
+        const cordovaIcon = this.getMediaUri(PROJECT_CONFIGS.cordova.icon, extensionUri, webview);
 
         return `
             <div class="project-type-icons" aria-hidden="true">
+                <span class="type-icon-chip" title="Laravel">
+                    <img src="${laravelIcon}" alt="Laravel" class="type-icon" />
+                </span>
                 <span class="type-icon-chip" title="Ionic">
                     <img src="${ionicIcon}" alt="Ionic" class="type-icon" />
                 </span>
-                <span class="type-icon-chip" title="Laravel">
-                    <img src="${laravelIcon}" alt="Laravel" class="type-icon" />
+                <span class="type-icon-chip" title="React Native">
+                    <img src="${reactNativeIcon}" alt="React Native" class="type-icon" />
+                </span>
+                <span class="type-icon-chip" title="Cordova">
+                    <img src="${cordovaIcon}" alt="Cordova" class="type-icon" />
                 </span>
             </div>
         `;
@@ -189,14 +160,14 @@ export class WebviewContent {
      * Genera las secciones de información de cada tipo de proyecto
      */
     private static generateProjectInfoSections(extensionUri?: any, webview?: any): string {
-        return ['laravel', 'ionic', 'other']
+        return ['laravel', 'ionic', 'ionic-cordova', 'react-native', 'cordova', 'other']
             .map(type => {
                 const config = PROJECT_CONFIGS[type];
                 const versionsHtml = this.generateVersionsHtml(config);
                 const commandsHtml = this.generateCommandsHtml(config);
                 const healthHtml = this.generateProjectHealthHtml(type);
                 const liveLogsHtml = this.generateLiveLogsHtml(type);
-                const appLogoHtml = type === 'ionic' ? this.generateIonicLogoHtml() : '';
+                const appLogoHtml = (type === 'ionic' || type === 'ionic-cordova') ? this.generateIonicLogoHtml(type) : '';
                 const iconUrl = config.icon.includes('.svg') ? this.getMediaUri(config.icon, extensionUri, webview) : null;
                 const isEmoji = !config.icon.includes('.svg');
 
@@ -326,15 +297,18 @@ export class WebviewContent {
     }
 
     /**
-     * Genera el bloque visual para el logo de la app Ionic
+     * Genera el bloque visual para el logo de la app Ionic / Ionic+Cordova
      */
-    private static generateIonicLogoHtml(): string {
+    private static generateIonicLogoHtml(type: string = 'ionic'): string {
+        const sectionId = type === 'ionic-cordova' ? 'appLogoSectionIonicCordova' : 'appLogoSectionIonic';
+        const imgId = type === 'ionic-cordova' ? 'appLogoIonicCordova' : 'appLogoIonic';
+        const emptyId = type === 'ionic-cordova' ? 'appLogoIonicCordovaEmpty' : 'appLogoIonicEmpty';
         return `
-            <div class="app-logo-section" id="appLogoSectionIonic">
+            <div class="app-logo-section" id="${sectionId}">
                 <div class="app-logo-header">LOGO ACTUAL DE LA APP</div>
                 <div class="app-logo-preview">
-                    <img id="appLogoIonic" class="app-logo-image" alt="Logo de la app" />
-                    <span id="appLogoIonicEmpty" class="app-logo-empty">No se detectó logo del proyecto</span>
+                    <img id="${imgId}" class="app-logo-image" alt="Logo de la app" />
+                    <span id="${emptyId}" class="app-logo-empty">No se detectó logo del proyecto</span>
                 </div>
             </div>
         `;
@@ -392,17 +366,6 @@ export class WebviewContent {
             min-height: 0;
         }
 
-        /* Selector de terminal */
-        .terminal-selector-wrapper {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            padding: 10px;
-            border: 1px solid var(--vscode-widget-border);
-            border-radius: 10px;
-            background: var(--vscode-editor-background);
-        }
-
         .terminal-label {
             font-size: 11px;
             font-weight: 700;
@@ -442,61 +405,7 @@ export class WebviewContent {
             object-fit: contain;
         }
 
-        .terminal-select {
-            width: 100%;
-            padding: 8px 10px;
-            border: 2px solid var(--vscode-inputBorder);
-            background: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 500;
-            font-family: var(--vscode-font-family);
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
 
-        .terminal-select:hover {
-            border-color: var(--vscode-focusBorder);
-        }
-
-        .terminal-select:focus {
-            outline: none;
-            border-color: var(--vscode-focusBorder);
-            box-shadow: 0 0 0 2px var(--vscode-focusBorder);
-            opacity: 0.5;
-        }
-
-        .terminal-status {
-            font-size: 11px;
-            color: var(--vscode-descriptionForeground);
-            font-style: italic;
-            opacity: 0.7;
-        }
-
-        .terminal-status.selected {
-            color: var(--vscode-chart-green);
-            opacity: 1;
-            font-weight: 600;
-        }
-
-        .terminal-hint {
-            padding: 8px 10px;
-            background: var(--vscode-editor-background);
-            border-left: 3px solid var(--vscode-chart-blue);
-            border-radius: 3px;
-            font-size: 10px;
-            line-height: 1.4;
-            color: var(--vscode-descriptionForeground);
-        }
-
-        .terminal-hint code {
-            background: var(--vscode-input-background);
-            padding: 2px 4px;
-            border-radius: 2px;
-            font-family: monospace;
-            font-size: 9px;
-        }
 
         .runtime-status-wrapper {
             margin-top: 2px;
@@ -1312,6 +1221,152 @@ export class WebviewContent {
         .project-info-wrapper::-webkit-scrollbar-thumb:hover {
             background: var(--vscode-widget-border);
         }
+
+        /* === Transiciones globales === */
+        .command-card,
+        .version-item,
+        .health-check-item,
+        .project-quick-btn,
+        .live-log-row {
+            transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .project-info {
+            transition: border-top-color 0.3s ease;
+            border-top: 3px solid var(--project-accent, var(--vscode-focusBorder));
+        }
+
+        /* === Notificaciones === */
+        .extension-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .notif-bell-btn {
+            background: transparent;
+            border: 1px solid var(--vscode-widget-border);
+            border-radius: 6px;
+            padding: 5px 8px;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--vscode-foreground);
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: background 0.2s ease, border-color 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .notif-bell-btn:hover,
+        .notif-bell-btn.active {
+            background: var(--vscode-button-secondaryBackground);
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .notif-badge {
+            background: var(--vscode-errorForeground);
+            color: #fff;
+            border-radius: 999px;
+            font-size: 9px;
+            font-weight: 700;
+            padding: 1px 4px;
+            min-width: 14px;
+            text-align: center;
+        }
+
+        .notifications-panel {
+            border: 1px solid var(--vscode-focusBorder);
+            border-radius: 8px;
+            background: var(--vscode-editor-background);
+            overflow: hidden;
+        }
+
+        .notif-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            background: var(--vscode-input-background);
+            border-bottom: 1px solid var(--vscode-widget-border);
+        }
+
+        .notif-panel-title {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .notif-clear-btn {
+            border: 1px solid var(--vscode-widget-border);
+            background: transparent;
+            color: var(--vscode-descriptionForeground);
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 10px;
+            cursor: pointer;
+        }
+
+        .notif-clear-btn:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+            border-color: var(--vscode-focusBorder);
+        }
+
+        .notif-list {
+            max-height: 220px;
+            overflow-y: auto;
+            padding: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .notif-empty {
+            font-size: 11px;
+            color: var(--vscode-descriptionForeground);
+            text-align: center;
+            padding: 10px;
+        }
+
+        .notif-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 6px 8px;
+            border: 1px solid var(--vscode-widget-border);
+            border-radius: 5px;
+            background: var(--vscode-input-background);
+            border-left: 3px solid var(--vscode-descriptionForeground);
+        }
+
+        .notif-item.notif-error  { border-left-color: var(--vscode-errorForeground); }
+        .notif-item.notif-warn   { border-left-color: var(--vscode-terminal-ansiYellow); }
+        .notif-item.notif-cmd    { border-left-color: var(--vscode-terminal-ansiBlue); }
+        .notif-item.notif-project { border-left-color: var(--vscode-terminal-ansiGreen); }
+
+        .notif-icon { font-size: 12px; flex-shrink: 0; }
+
+        .notif-body {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+
+        .notif-text {
+            font-size: 11px;
+            color: var(--vscode-foreground);
+            word-break: break-word;
+        }
+
+        .notif-time {
+            font-size: 9px;
+            color: var(--vscode-descriptionForeground);
+            opacity: 0.7;
+        }
+
         `;
     }
 
@@ -1322,21 +1377,35 @@ export class WebviewContent {
         return `
         const vscode = acquireVsCodeApi();
         const VERSION_KEY_MAP = ${JSON.stringify(versionKeyMap)};
+        const ACCENT_COLORS = {
+            laravel: '#FF2D20',
+            ionic: '#3880FF',
+            'ionic-cordova': '#3880FF',
+            'react-native': '#61DAFB',
+            cordova: '#E8AA2C',
+            other: '#808080'
+        };
+        const notifications = [];
+        let notifUnreadCount = 0;
+        const MAX_NOTIFICATIONS = 30;
         const persistedState = vscode.getState() || {};
-        let selectedTerminal = typeof persistedState.selectedTerminal === 'string'
-            ? persistedState.selectedTerminal
-            : null;
         let selectedProjectName = typeof persistedState.selectedProjectName === 'string'
             ? persistedState.selectedProjectName
             : '';
         const liveLogsByType = {
             laravel: [],
             ionic: [],
+            'ionic-cordova': [],
+            'react-native': [],
+            cordova: [],
             other: []
         };
         const liveLogsFilterByType = {
             laravel: 'all',
             ionic: 'all',
+            'ionic-cordova': 'all',
+            'react-native': 'all',
+            cordova: 'all',
             other: 'all'
         };
 
@@ -1355,7 +1424,6 @@ export class WebviewContent {
 
         function persistUiState() {
             vscode.setState({
-                selectedTerminal,
                 selectedProjectName
             });
         }
@@ -1498,30 +1566,7 @@ export class WebviewContent {
                 .join('');
         }
 
-        function updateTerminalStatusFromSelect() {
-            const select = document.getElementById('terminalSelect');
-            const statusEl = document.getElementById('terminalStatus');
-
-            if (!select || !statusEl) {
-                return;
-            }
-
-            selectedTerminal = select.value || null;
-
-            if (selectedTerminal) {
-                const selectedText = select.options[select.selectedIndex]?.text || '';
-                statusEl.textContent = '\u2713 ' + selectedText;
-                statusEl.classList.add('selected');
-            } else {
-                statusEl.textContent = '';
-                statusEl.classList.remove('selected');
-            }
-
-            persistUiState();
-        }
-
         function initializePersistedSelections() {
-            const terminalSelect = document.getElementById('terminalSelect');
             const projectSelect = document.getElementById('projectSelect');
 
             if (projectSelect && selectedProjectName) {
@@ -1536,23 +1581,7 @@ export class WebviewContent {
                 }
             }
 
-            if (terminalSelect && selectedTerminal) {
-                terminalSelect.value = selectedTerminal;
-                if (terminalSelect.value !== selectedTerminal) {
-                    selectedTerminal = null;
-                }
-            }
-
             updateProjectQuickToolsState();
-            updateTerminalStatusFromSelect();
-
-            if (selectedTerminal) {
-                vscode.postMessage({
-                    command: 'terminalSelected',
-                    terminalId: selectedTerminal
-                });
-            }
-
             persistUiState();
         }
 
@@ -1612,34 +1641,15 @@ export class WebviewContent {
         }
         
         /**
-         * Selecciona una terminal
-         */
-        function selectTerminal() {
-            updateTerminalStatusFromSelect();
-
-            if (selectedTerminal) {
-                vscode.postMessage({
-                    command: 'terminalSelected',
-                    terminalId: selectedTerminal
-                });
-            }
-        }
-        
-        /**
-         * Ejecuta un comando
+         * Ejecuta un comando (la terminal se gestiona automáticamente por proyecto)
          */
         function executeCommand(id, command) {
-            if (!selectedTerminal) {
-                alert('Por favor, selecciona una terminal primero');
-                document.getElementById('terminalSelect').focus();
-                return;
-            }
+            addNotification('cmd', 'Ejecutando: ' + id + (selectedProjectName ? ' \u00b7 ' + selectedProjectName : ''));
             
             vscode.postMessage({ 
                 command: 'executeCommand', 
                 commandId: id,
-                commandText: command,
-                terminalId: selectedTerminal
+                commandText: command
             });
         }
 
@@ -1687,28 +1697,6 @@ export class WebviewContent {
             const LARAVEL_DB_ENV_KEYS = ['DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD'];
             const IONIC_API_KEYS = ['apiUrl (dev)', 'apiUrl (prod)'];
 
-            function renderTerminalOptions(terminals) {
-                const safeTerminals = Array.isArray(terminals) ? terminals : [];
-                const vsCodeTerminals = safeTerminals
-                    .filter(t => t.type === 'vscode')
-                    .map(t => '<option value="' + t.id + '">' + t.name + '</option>')
-                    .join('');
-
-                const externalTerminals = safeTerminals
-                    .filter(t => t.type === 'external')
-                    .map(t => '<option value="' + t.id + '">' + t.name + '</option>')
-                    .join('');
-
-                return '<optgroup label="VS Code">'
-                    + vsCodeTerminals
-                    + '<option value="vscode:new">+ Crear nueva terminal</option>'
-                    + '</optgroup>'
-                    + '<optgroup label="Externa">'
-                    + externalTerminals
-                    + '<option value="external:native">🖥️ Terminal Externa</option>'
-                    + '</optgroup>';
-            }
-            
             if (message.command === 'updateProjectInfo') {
                 const project = message.project;
                 const typeCapitalized = project.type.charAt(0).toUpperCase() + project.type.slice(1);
@@ -1718,6 +1706,7 @@ export class WebviewContent {
                 const infoSection = document.getElementById(project.type + 'Info');
                 if (infoSection) {
                     infoSection.classList.add('active');
+                    applyProjectAccentColor(infoSection, project.type);
                 }
 
                 // Actualizar información
@@ -1733,10 +1722,13 @@ export class WebviewContent {
                 selectedProjectName = project.name;
                 persistUiState();
                 updateProjectQuickToolsState();
+                addNotification('project', 'Proyecto: ' + project.name + ' (' + project.type + ')');
 
-                // Actualizar logo actual de la app (Ionic)
+                // Actualizar logo actual de la app (Ionic / Ionic+Cordova)
                 const appLogoIonic = document.getElementById('appLogoIonic');
                 const appLogoIonicEmpty = document.getElementById('appLogoIonicEmpty');
+                const appLogoIonicCordova = document.getElementById('appLogoIonicCordova');
+                const appLogoIonicCordovaEmpty = document.getElementById('appLogoIonicCordovaEmpty');
 
                 if (appLogoIonic && appLogoIonicEmpty) {
                     if (project.type === 'ionic' && project.appLogoUri) {
@@ -1747,6 +1739,18 @@ export class WebviewContent {
                         appLogoIonic.removeAttribute('src');
                         appLogoIonic.style.display = 'none';
                         appLogoIonicEmpty.style.display = 'inline-block';
+                    }
+                }
+
+                if (appLogoIonicCordova && appLogoIonicCordovaEmpty) {
+                    if (project.type === 'ionic-cordova' && project.appLogoUri) {
+                        appLogoIonicCordova.setAttribute('src', project.appLogoUri);
+                        appLogoIonicCordova.style.display = 'block';
+                        appLogoIonicCordovaEmpty.style.display = 'none';
+                    } else {
+                        appLogoIonicCordova.removeAttribute('src');
+                        appLogoIonicCordova.style.display = 'none';
+                        appLogoIonicCordovaEmpty.style.display = 'inline-block';
                     }
                 }
 
@@ -1786,7 +1790,7 @@ export class WebviewContent {
                                     \`;
                                 }
 
-                                if (project.type === 'ionic' && IONIC_API_KEYS.includes(key)) {
+                                if ((project.type === 'ionic' || project.type === 'ionic-cordova') && IONIC_API_KEYS.includes(key)) {
                                     const encodedValue = encodeURIComponent(String(rawValue));
 
                                     return \`
@@ -1863,7 +1867,7 @@ export class WebviewContent {
                             });
                         }
 
-                        if (project.type === 'ionic') {
+                        if (project.type === 'ionic' || project.type === 'ionic-cordova') {
                             const apiEditButtons = versionsContainer.querySelectorAll('.ionic-api-edit-btn');
                             apiEditButtons.forEach((button) => {
                                 button.addEventListener('click', () => {
@@ -1883,36 +1887,107 @@ export class WebviewContent {
                 }
             }
             
-            if (message.command === 'updateTerminals') {
-                const terminalSelect = document.getElementById('terminalSelect');
-                if (terminalSelect) {
-                    if (message.terminals) {
-                        const placeholder = '<option value="">Selecciona una terminal...</option>';
-                        terminalSelect.innerHTML = placeholder + renderTerminalOptions(message.terminals);
-                    }
-
-                    if (typeof message.selectedTerminalId === 'string') {
-                        terminalSelect.value = message.selectedTerminalId;
-                    }
-
-                    updateTerminalStatusFromSelect();
-                }
-            }
-
             if (message.command === 'updateRuntimeRuns') {
                 renderRuntimeRuns(message.runs);
             }
 
             if (message.command === 'updateProjectHealth') {
                 renderProjectHealth(message.projectType, message.health);
+                if (message.health && (message.health.overallStatus === 'error' || message.health.overallStatus === 'warn')) {
+                    addNotification(
+                        message.health.overallStatus,
+                        'Salud ' + message.health.overallStatus.toUpperCase() + ': ' + (message.health.summary || message.projectType)
+                    );
+                }
             }
 
             if (message.command === 'updateLiveLogs') {
                 const projectType = message.projectType || 'other';
-                liveLogsByType[projectType] = Array.isArray(message.entries) ? message.entries : [];
+                const newEntries = Array.isArray(message.entries) ? message.entries : [];
+                const prevCount = (liveLogsByType[projectType] || []).length;
+                liveLogsByType[projectType] = newEntries;
                 renderLiveLogs(projectType);
+                if (newEntries.length > prevCount) {
+                    const newOnes = newEntries.slice(prevCount);
+                    const errorEntry = newOnes.find(function(e) { return e.level === 'error'; });
+                    if (errorEntry) {
+                        addNotification('error', 'Error en ' + projectType + ': ' + String(errorEntry.message || '').slice(0, 60));
+                    }
+                }
             }
         });
+
+        // === NOTIFICACIONES ===
+        function addNotification(type, text) {
+            const entry = {
+                type: type,
+                text: text,
+                time: new Date().toLocaleTimeString('es-ES', { hour12: false })
+            };
+            notifications.unshift(entry);
+            if (notifications.length > MAX_NOTIFICATIONS) {
+                notifications.pop();
+            }
+            notifUnreadCount++;
+            const badge = document.getElementById('notifBadge');
+            if (badge) {
+                badge.textContent = String(notifUnreadCount > 9 ? '9+' : notifUnreadCount);
+                badge.hidden = false;
+            }
+            const panel = document.getElementById('notificationsPanel');
+            if (panel && !panel.hidden) {
+                renderNotifications();
+            }
+        }
+
+        function renderNotifications() {
+            const list = document.getElementById('notifList');
+            if (!list) { return; }
+            if (!notifications.length) {
+                list.innerHTML = '<div class="notif-empty">Sin notificaciones</div>';
+                return;
+            }
+            const iconMap = { project: '\u{1F4C2}', cmd: '\u25b6\ufe0f', error: '\ud83d\udd34', warn: '\u26a0\ufe0f' };
+            list.innerHTML = notifications.map(function(n) {
+                const icon = iconMap[n.type] || '\u2139\ufe0f';
+                return '<div class="notif-item notif-' + escapeHtml(n.type) + '">'
+                    + '<span class="notif-icon">' + icon + '</span>'
+                    + '<div class="notif-body">'
+                    + '<span class="notif-text">' + escapeHtml(n.text) + '</span>'
+                    + '<span class="notif-time">' + escapeHtml(n.time) + '</span>'
+                    + '</div>'
+                    + '</div>';
+            }).join('');
+        }
+
+        function toggleNotifications() {
+            const panel = document.getElementById('notificationsPanel');
+            const btn = document.getElementById('notifBellBtn');
+            if (!panel) { return; }
+            panel.hidden = !panel.hidden;
+            if (btn) { btn.classList.toggle('active', !panel.hidden); }
+            if (!panel.hidden) {
+                notifUnreadCount = 0;
+                const badge = document.getElementById('notifBadge');
+                if (badge) { badge.hidden = true; }
+                renderNotifications();
+            }
+        }
+
+        function clearNotifications() {
+            notifications.length = 0;
+            notifUnreadCount = 0;
+            const badge = document.getElementById('notifBadge');
+            if (badge) { badge.hidden = true; }
+            renderNotifications();
+        }
+
+        // === ACCENT COLOR ===
+        function applyProjectAccentColor(element, projectType) {
+            const color = ACCENT_COLORS[projectType] || ACCENT_COLORS.other;
+            element.style.setProperty('--project-accent', color);
+            element.style.borderTopColor = color;
+        }
 
         initializePersistedSelections();
         `;

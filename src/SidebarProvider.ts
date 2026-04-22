@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execSync } from 'child_process';
-import { Project, Terminal, WebviewMessage } from './types';
+import { Project, WebviewMessage } from './types';
 import { WebviewContent } from './ui/WebviewContent';
 
 interface ReleaseCommandInput {
@@ -60,7 +60,7 @@ interface IonicAndroidDevice {
  */
 export class SidebarProvider implements vscode.WebviewViewProvider {
   private selectedProject: Project | null = null;
-  private selectedTerminalId: string | null = null;
+  private projectTerminals = new Map<string, vscode.Terminal>();
   private logger = console;
   private webviewView: vscode.WebviewView | null = null;
   private runtimeSessions = new Map<string, RuntimeRunSession>();
@@ -97,11 +97,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [this._extensionUri, ...workspaceRoots],
     };
 
-    // Obtener terminales disponibles
-    const terminals = this.getAvailableTerminals();
-
-    // Generar contenido HTML con proyectos y terminales
-    webviewView.webview.html = WebviewContent.generate(this.projects, terminals, this._extensionUri, webviewView.webview);
+    // Generar contenido HTML con proyectos
+    webviewView.webview.html = WebviewContent.generate(this.projects, [], this._extensionUri, webviewView.webview);
 
     // Escuchar mensajes del webview
     this.setupMessageHandlers(webviewView);
@@ -115,28 +112,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Obtiene las terminales disponibles
-   */
-  private getAvailableTerminals(): Terminal[] {
-    const terminals: Terminal[] = [];
-
-    // Agregar terminales existentes de VS Code
-    vscode.window.terminals.forEach((terminal, index) => {
-      if (this.runtimeHiddenTerminals.has(terminal)) {
-        return;
-      }
-
-      terminals.push({
-        id: `vscode:${terminal.name}:${index}`,
-        name: `📟 ${terminal.name || `Terminal ${index + 1}`}`,
-        type: 'vscode'
-      });
-    });
-
-    return terminals;
-  }
-
-  /**
    * Configura los manejadores de mensajes del webview
    */
   private setupMessageHandlers(webviewView: vscode.WebviewView): void {
@@ -144,15 +119,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this.logger.log('[SidebarProvider] Message received:', message);
 
       switch (message.command) {
-        case 'terminalSelected':
-          this.handleTerminalSelection(message.terminalId);
-          break;
-
         case 'executeCommand':
           this.handleCommandExecution(
             message.commandId,
             message.commandText,
-            message.terminalId,
             webviewView
           );
           break;
@@ -198,11 +168,23 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Maneja la selección de terminal
+   * Obtiene o crea la terminal dedicada al proyecto seleccionado
    */
-  private handleTerminalSelection(terminalId: string): void {
-    this.selectedTerminalId = terminalId;
-    this.logger.log(`[SidebarProvider] Terminal selected: ${terminalId}`);
+  private getOrCreateProjectTerminal(): vscode.Terminal {
+    const projectName = this.selectedProject!.name;
+    const existing = this.projectTerminals.get(projectName);
+    if (existing) {
+      return existing;
+    }
+
+    const terminal = vscode.window.createTerminal({
+      name: `Myrmidon — ${projectName}`,
+      hideFromUser: false,
+    });
+
+    this.projectTerminals.set(projectName, terminal);
+    this.logger.log(`[SidebarProvider] Created dedicated terminal for project: ${projectName}`);
+    return terminal;
   }
 
   /**
@@ -211,25 +193,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private async handleCommandExecution(
     commandId: string,
     commandText: string,
-    terminalId: string,
     webviewView: vscode.WebviewView
   ): Promise<void> {
     this.logger.log(`[SidebarProvider] Executing command: ${commandId}`);
     this.logger.log(`[SidebarProvider] Command text: ${commandText}`);
-    this.logger.log(`[SidebarProvider] Terminal ID: ${terminalId}`);
 
     if (!this.selectedProject) {
       vscode.window.showErrorMessage('Por favor, selecciona un proyecto primero');
       return;
     }
 
-    if (!this.isRuntimeCommand(commandId) && !terminalId) {
-      vscode.window.showErrorMessage('Por favor, selecciona una terminal antes de ejecutar comandos');
-      return;
-    }
-
     if (commandId === 'ionic-prepare-release') {
-      await this.handlePrepareToRelease(terminalId, webviewView);
+      await this.handlePrepareToRelease(webviewView);
       return;
     }
 
@@ -245,23 +220,21 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const projectPath = this.selectedProject.path;
     const fullCommand = `cd "${projectPath}" && ${commandText}`;
 
-    this.dispatchCommandToTerminal(terminalId, fullCommand, webviewView);
+    const terminal = this.getOrCreateProjectTerminal();
+    terminal.show();
+    terminal.sendText(fullCommand);
+    this.logger.log(`[SidebarProvider] Command sent to project terminal: ${terminal.name}`);
+    vscode.window.showInformationMessage(`✓ Ejecutando en terminal: ${terminal.name}`);
   }
 
   /**
    * Flujo guiado para preparar un release firmado de Android (AAB)
    */
   private async handlePrepareToRelease(
-    terminalId: string,
     webviewView: vscode.WebviewView
   ): Promise<void> {
     if (!this.selectedProject || this.selectedProject.type !== 'ionic') {
       vscode.window.showErrorMessage('Prepare To Release solo está disponible para proyectos Ionic');
-      return;
-    }
-
-    if (terminalId.startsWith('external:')) {
-      vscode.window.showErrorMessage('Por seguridad, usa una terminal de VS Code para firmar el AAB');
       return;
     }
 
@@ -447,27 +420,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       versionCode: releaseVersionCode,
     });
 
-    this.dispatchCommandToTerminal(terminalId, fullCommand, webviewView);
+    const terminal = this.getOrCreateProjectTerminal();
+    terminal.show();
+    terminal.sendText(fullCommand);
     vscode.window.showInformationMessage(
       `✓ Flujo de release enviado (versión ${releaseVersion}, build ${releaseVersionCode})`
     );
-  }
-
-  /**
-   * Envía un comando a la terminal elegida por el usuario
-   */
-  private dispatchCommandToTerminal(
-    terminalId: string,
-    fullCommand: string,
-    webviewView: vscode.WebviewView
-  ): void {
-    if (terminalId === 'vscode:new') {
-      this.executeInNewVSCodeTerminal(fullCommand, webviewView);
-    } else if (terminalId.startsWith('vscode:')) {
-      this.executeInSelectedVSCodeTerminal(terminalId, fullCommand, webviewView);
-    } else if (terminalId.startsWith('external:')) {
-      this.executeInExternalTerminal(fullCommand, terminalId);
-    }
   }
 
   /**
@@ -733,6 +691,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
       if (this.runtimeHiddenTerminals.has(terminal)) {
         this.runtimeHiddenTerminals.delete(terminal);
+      }
+
+      // Limpiar terminal dedicada de proyecto si fue cerrada
+      for (const [projectName, projectTerminal] of this.projectTerminals.entries()) {
+        if (projectTerminal === terminal) {
+          this.projectTerminals.delete(projectName);
+          this.logger.log(`[SidebarProvider] Project terminal removed after close: ${projectName}`);
+          break;
+        }
       }
 
       for (const [sessionId, runtimeSession] of this.runtimeSessions.entries()) {
@@ -1189,28 +1156,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Sincroniza terminales visibles y ejecuciones activas en el webview
+   * Sincroniza ejecuciones activas en el webview
    */
   private pushTerminalAndRuntimeState(targetWebviewView?: vscode.WebviewView): void {
     const activeWebview = targetWebviewView || this.webviewView;
     if (!activeWebview) {
       return;
     }
-
-    const availableTerminals = this.getAvailableTerminals();
-    const hasCurrentSelection = this.selectedTerminalId
-      ? availableTerminals.some(terminal => terminal.id === this.selectedTerminalId)
-      : false;
-
-    if (!hasCurrentSelection) {
-      this.selectedTerminalId = '';
-    }
-
-    activeWebview.webview.postMessage({
-      command: 'updateTerminals',
-      terminals: availableTerminals,
-      selectedTerminalId: this.selectedTerminalId || ''
-    });
 
     activeWebview.webview.postMessage({
       command: 'updateRuntimeRuns',
@@ -1487,138 +1439,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Ejecuta un comando en una terminal existente de VS Code
-   */
-  private executeInSelectedVSCodeTerminal(terminalId: string, fullCommand: string, webviewView?: vscode.WebviewView): void {
-    const terminal = this.resolveVSCodeTerminalFromId(terminalId);
-
-    if (terminal) {
-      terminal.show();
-      terminal.sendText(fullCommand);
-      this.logger.log(`[SidebarProvider] Command sent to existing terminal: ${terminal.name}`);
-      vscode.window.showInformationMessage(
-        `✓ Ejecutando en terminal: ${terminal.name}`
-      );
-    } else if (webviewView) {
-      this.executeInNewVSCodeTerminal(fullCommand, webviewView);
-    }
-  }
-
-  /**
-   * Resuelve una terminal de VS Code a partir de su id serializado
-   */
-  private resolveVSCodeTerminalFromId(terminalId: string): vscode.Terminal | undefined {
-    if (!terminalId.startsWith('vscode:')) {
-      return undefined;
-    }
-
-    const lastSeparator = terminalId.lastIndexOf(':');
-    if (lastSeparator <= 'vscode:'.length) {
-      return undefined;
-    }
-
-    const namePart = terminalId.slice('vscode:'.length, lastSeparator);
-    const indexPart = terminalId.slice(lastSeparator + 1);
-    const parsedIndex = Number(indexPart);
-
-    if (!Number.isNaN(parsedIndex)) {
-      const byIndex = vscode.window.terminals[parsedIndex];
-      if (byIndex && byIndex.name === namePart) {
-        return byIndex;
-      }
-    }
-
-    return vscode.window.terminals.find(terminal => terminal.name === namePart);
-  }
-
-  /**
-   * Ejecuta un comando en una nueva terminal de VS Code
-   */
-  private executeInNewVSCodeTerminal(fullCommand: string, webviewView: vscode.WebviewView): void {
-    const terminal = vscode.window.createTerminal({
-      name: 'Myrmidon',
-      hideFromUser: false
-    });
-    terminal.show();
-    terminal.sendText(fullCommand);
-
-    // Guardar referencia a la terminal nueva
-    this.selectedTerminalId = `vscode:${terminal.name}:${vscode.window.terminals.length - 1}`;
-
-    this.logger.log(`[SidebarProvider] Created new terminal: ${terminal.name}`);
-    vscode.window.showInformationMessage(`✓ Ejecutando en nueva terminal VS Code`);
-
-    // Actualizar el webview con terminales/runs disponibles
-    this.pushTerminalAndRuntimeState(webviewView);
-  }
-
-  /**
-   * Ejecuta un comando en la terminal externa predefinida de VS Code
-   */
-  private async executeInExternalTerminal(fullCommand: string, terminalId: string): Promise<void> {
-    this.logger.log(`[SidebarProvider] Opening external terminal with command: ${fullCommand}`);
-
-    // Copiar comando al portapapeles
-    await vscode.env.clipboard.writeText(fullCommand);
-
-    // Abrir la terminal externa configurada en VS Code
-    try {
-      await vscode.commands.executeCommand('workbench.action.terminal.openNativeConsole');
-
-      this.logger.log(`[SidebarProvider] External terminal opened`);
-      vscode.window.showInformationMessage(
-        `✓ Terminal externa abierta\n\nComando copiado al portapapeles:\n${fullCommand}\n\nPega (Ctrl+V) y presiona Enter`
-      );
-    } catch (error: any) {
-      this.logger.error('[SidebarProvider] Error opening external terminal:', error);
-      vscode.window.showErrorMessage(
-        `No se pudo abrir terminal externa. Intenta manualmente:\n\n${fullCommand}`
-      );
-    }
-  }
-
-  /**
-   * Abre la terminal nativa configurada en VS Code
-   */
-  private async openNativeTerminal(fullCommand: string): Promise<void> {
-    try {
-      // Crear un script temporal con el comando
-      const fs = require('fs');
-      const path = require('path');
-      const os = require('os');
-
-      const tempDir = os.tmpdir();
-      const tempScript = path.join(tempDir, `myrmidon_${Date.now()}.sh`);
-
-      // Escribir el comando en un archivo temporal
-      fs.writeFileSync(tempScript, `#!/bin/bash\n${fullCommand}\n`, { mode: 0o755 });
-
-      // Ejecutar el script en la terminal nativa
-      const { execFile } = require('child_process');
-      execFile('sh', [tempScript], (error: any) => {
-        // Limpiar archivo temporal
-        fs.unlink(tempScript, (err: any) => {
-          if (err) {
-            this.logger.warn('Could not delete temp script:', err);
-          }
-        });
-
-        if (error) {
-          this.logger.error('[SidebarProvider] Error in native terminal:', error);
-          vscode.window.showErrorMessage(`Error al ejecutar en terminal nativa: ${error.message}`);
-        } else {
-          vscode.window.showInformationMessage(`✓ Ejecutando en terminal nativa`);
-        }
-      });
-    } catch (error: any) {
-      this.logger.error('[SidebarProvider] Error opening native terminal:', error);
-      vscode.window.showErrorMessage(
-        `No se pudo abrir terminal nativa: ${error.message}`
-      );
-    }
-  }
-
-  /**
    * Maneja la selección de un proyecto
    */
   private handleProjectSelection(
@@ -1680,15 +1500,19 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       }
 
       case 'open-project-terminal': {
-        const terminal = vscode.window.createTerminal({
-          name: `Myrmidon ${targetProject.name}`,
-          cwd: targetProject.path,
-          hideFromUser: false,
-        });
-        terminal.show();
-
-        this.selectedTerminalId = `vscode:${terminal.name}:${vscode.window.terminals.length - 1}`;
-        this.pushTerminalAndRuntimeState(webviewView);
+        // Reutilizar o crear la terminal dedicada del proyecto
+        const existingProjectTerminal = this.projectTerminals.get(targetProject.name);
+        if (existingProjectTerminal) {
+          existingProjectTerminal.show();
+        } else {
+          const terminal = vscode.window.createTerminal({
+            name: `Myrmidon \u2014 ${targetProject.name}`,
+            cwd: targetProject.path,
+            hideFromUser: false,
+          });
+          this.projectTerminals.set(targetProject.name, terminal);
+          terminal.show();
+        }
         break;
       }
 
