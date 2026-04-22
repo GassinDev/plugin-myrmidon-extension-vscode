@@ -2465,7 +2465,7 @@ var SidebarProvider = class {
       vscode2.window.showErrorMessage("No se encontr\xF3 package.json en el proyecto seleccionado");
       return;
     }
-    const currentVersion = this.getCurrentAppVersion(packageJsonPath) || "1.0.0";
+    const currentVersion = this.getCurrentAndroidVersionName(projectPath) || this.getCurrentAppVersion(packageJsonPath) || "1.0.0";
     const versionOption = await vscode2.window.showQuickPick(
       [
         {
@@ -2475,7 +2475,7 @@ var SidebarProvider = class {
         },
         {
           label: "Cambiar versi\xF3n",
-          description: "Actualizar package.json antes del release",
+          description: "Actualizar build.gradle y package.json antes del release",
           value: "change"
         }
       ],
@@ -2521,6 +2521,30 @@ var SidebarProvider = class {
         project: this.selectedProject
       });
     }
+    const currentVersionCode = this.getCurrentAndroidVersionCode(projectPath) || "1";
+    const releaseVersionCodeInput = await vscode2.window.showInputBox({
+      title: "C\xF3digo de versi\xF3n (build)",
+      prompt: "Ingresa el versionCode entero para Android (ej: 42)",
+      value: currentVersionCode,
+      ignoreFocusOut: true,
+      validateInput: (value) => {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return "El c\xF3digo de versi\xF3n es obligatorio";
+        }
+        if (!/^\d+$/.test(trimmed)) {
+          return "El c\xF3digo de versi\xF3n debe ser un n\xFAmero entero";
+        }
+        if (Number(trimmed) <= 0) {
+          return "El c\xF3digo de versi\xF3n debe ser mayor que 0";
+        }
+        return null;
+      }
+    });
+    if (!releaseVersionCodeInput) {
+      return;
+    }
+    const releaseVersionCode = releaseVersionCodeInput.trim();
     const keystorePath = await this.pickKeystoreFile(projectPath);
     if (!keystorePath) {
       return;
@@ -2558,7 +2582,7 @@ var SidebarProvider = class {
       [
         {
           label: "Continuar y preparar release",
-          description: `Versi\xF3n ${releaseVersion} | ${path2.basename(keystorePath)} | alias ${keyAlias}`,
+          description: `Versi\xF3n ${releaseVersion} (build ${releaseVersionCode}) | ${path2.basename(keystorePath)} | alias ${keyAlias}`,
           value: "continue"
         },
         { label: "Cancelar", value: "cancel" }
@@ -2572,15 +2596,24 @@ var SidebarProvider = class {
     if (!confirmation || confirmation.value !== "continue") {
       return;
     }
+    try {
+      this.updateAndroidBuildGradle(projectPath, releaseVersionCode, releaseVersion);
+    } catch (err) {
+      vscode2.window.showErrorMessage(`No se pudo actualizar build.gradle: ${err.message}`);
+      return;
+    }
     const fullCommand = this.buildPrepareReleaseCommand({
       projectPath,
       keystorePath,
       storePassword,
       keyAlias,
-      keyPassword
+      keyPassword,
+      versionCode: releaseVersionCode
     });
     this.dispatchCommandToTerminal(terminalId, fullCommand, webviewView);
-    vscode2.window.showInformationMessage(`\u2713 Flujo de release enviado (versi\xF3n ${releaseVersion})`);
+    vscode2.window.showInformationMessage(
+      `\u2713 Flujo de release enviado (versi\xF3n ${releaseVersion}, build ${releaseVersionCode})`
+    );
   }
   /**
    * Envía un comando a la terminal elegida por el usuario
@@ -3325,7 +3358,95 @@ var SidebarProvider = class {
     const storePassword = this.escapeForShellDoubleQuotes(input.storePassword);
     const keyAlias = this.escapeForShellDoubleQuotes(input.keyAlias);
     const keyPassword = this.escapeForShellDoubleQuotes(input.keyPassword);
-    return `cd "${projectPath}" && ionic cap build android && ionic cap sync android && cd android && ${gradleCmd} bundleRelease -Pandroid.injected.signing.store.file="${keystorePath}" -Pandroid.injected.signing.store.password="${storePassword}" -Pandroid.injected.signing.key.alias="${keyAlias}" -Pandroid.injected.signing.key.password="${keyPassword}"`;
+    const versionCode = this.escapeForShellDoubleQuotes(input.versionCode);
+    return `cd "${projectPath}" && ionic cap build android && ionic cap sync android && cd android && ${gradleCmd} bundleRelease -Pandroid.injected.version.code=${versionCode} -Pandroid.injected.signing.store.file="${keystorePath}" -Pandroid.injected.signing.store.password="${storePassword}" -Pandroid.injected.signing.key.alias="${keyAlias}" -Pandroid.injected.signing.key.password="${keyPassword}"`;
+  }
+  /**
+   * Obtiene el versionName Android actual desde build.gradle(.kts)
+   */
+  getCurrentAndroidVersionName(projectPath) {
+    const candidates = [
+      path2.join(projectPath, "android", "app", "build.gradle"),
+      path2.join(projectPath, "android", "app", "build.gradle.kts")
+    ];
+    for (const candidate of candidates) {
+      if (!fs2.existsSync(candidate)) {
+        continue;
+      }
+      try {
+        const fileContent = fs2.readFileSync(candidate, "utf8");
+        const match = fileContent.match(/^\s*versionName\s*(?:=\s*)?["']([^"']+)["']/m);
+        if (match?.[1]) {
+          return match[1];
+        }
+      } catch (error) {
+        this.logger.debug("[SidebarProvider] Error reading Android versionName:", error);
+      }
+    }
+    return null;
+  }
+  /**
+   * Actualiza versionCode y versionName en build.gradle(.kts)
+   */
+  updateAndroidBuildGradle(projectPath, versionCode, versionName) {
+    const candidates = [
+      path2.join(projectPath, "android", "app", "build.gradle"),
+      path2.join(projectPath, "android", "app", "build.gradle.kts")
+    ];
+    for (const candidate of candidates) {
+      if (!fs2.existsSync(candidate)) {
+        continue;
+      }
+      let content = fs2.readFileSync(candidate, "utf8");
+      const isKts = candidate.endsWith(".kts");
+      if (isKts) {
+        content = content.replace(
+          /^(\s*versionCode\s*=\s*)\d+/m,
+          `$1${versionCode}`
+        );
+        content = content.replace(
+          /^(\s*versionName\s*=\s*)["'][^"']*["']/m,
+          `$1"${versionName}"`
+        );
+      } else {
+        content = content.replace(
+          /^(\s*versionCode\s*)\d+/m,
+          `$1${versionCode}`
+        );
+        content = content.replace(
+          /^(\s*versionName\s*)["'][^"']*["']/m,
+          `$1"${versionName}"`
+        );
+      }
+      fs2.writeFileSync(candidate, content, "utf8");
+      this.logger.log(`[SidebarProvider] Updated build.gradle: versionCode=${versionCode} versionName=${versionName}`);
+      return;
+    }
+    throw new Error("No se encontr\xF3 android/app/build.gradle en el proyecto");
+  }
+  /**
+   * Obtiene el versionCode Android actual desde build.gradle(.kts)
+   */
+  getCurrentAndroidVersionCode(projectPath) {
+    const candidates = [
+      path2.join(projectPath, "android", "app", "build.gradle"),
+      path2.join(projectPath, "android", "app", "build.gradle.kts")
+    ];
+    for (const candidate of candidates) {
+      if (!fs2.existsSync(candidate)) {
+        continue;
+      }
+      try {
+        const fileContent = fs2.readFileSync(candidate, "utf8");
+        const match = fileContent.match(/^\s*versionCode\s*(?:=\s*)?(\d+)\b/m);
+        if (match?.[1]) {
+          return match[1];
+        }
+      } catch (error) {
+        this.logger.debug("[SidebarProvider] Error reading Android versionCode:", error);
+      }
+    }
+    return null;
   }
   /**
    * Escapa caracteres peligrosos para argumentos entre comillas dobles
